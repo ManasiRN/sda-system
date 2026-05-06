@@ -177,8 +177,8 @@ async def trigger_ingest_tles(
     Returns immediately; ingestion runs in the background (~20-40s).
     Check /health afterwards to confirm TLE data is present.
     """
-    from ...ingestion.fetcher import TLEFetcher
-    from ...db.session import SessionLocal
+    from sda_system.ingestion.fetcher import TLEFetcher
+    from sda_system.db.session import SessionLocal
 
     async def _run_ingest() -> None:
         db = SessionLocal()
@@ -204,12 +204,12 @@ async def trigger_run_pipeline(
     No Celery workers required. Takes 2-10 min depending on limit.
     Check /api/coverage afterwards to see results.
     """
-    from ...db.models import TLE, GroundStation, SatellitePass
-    from ...db.session import SessionLocal
-    from ...propagation.pass_detector import pass_detector
-    from ...propagation.sgp4_engine import sgp4_engine
-    from ...scheduling.greedy import GreedyScheduler
-    from ...config import config as sda_config
+    from sda_system.db.models import TLE, GroundStation, SatellitePass
+    from sda_system.db.session import SessionLocal
+    from sda_system.propagation.pass_detector import pass_detector
+    from sda_system.propagation.sgp4_engine import sgp4_engine
+    from sda_system.scheduling.greedy import GreedyScheduler
+    from sda_system.config import config as sda_config
 
     def _run() -> None:
         import structlog as _structlog
