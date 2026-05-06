@@ -185,7 +185,7 @@ async def get_passes(
     # --- Timezone-aware defaults (fix: was datetime.utcnow() — naive) ---
     now = datetime.now(timezone.utc)
     if start_time is None:
-        start_time = now
+        start_time = now - timedelta(days=7)   # default: past 7 days
     if end_time is None:
         end_time = start_time + timedelta(days=7)
 

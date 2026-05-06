@@ -291,10 +291,11 @@ def detect_passes(self, norad_ids: List[int]) -> Dict[str, Any]:
             tle_rows: List[Dict] = []
             for station in stations:
                 station_dict = {
-                    "id":         station.station_id,
-                    "latitude":   station.latitude,
-                    "longitude":  station.longitude,
-                    "altitude_m": station.altitude_m,
+                    "id":                 station.station_id,
+                    "latitude":           station.latitude,
+                    "longitude":          station.longitude,
+                    "altitude_m":         station.altitude_m,
+                    "elevation_mask_deg": getattr(station, "elevation_mask_deg", config.MIN_ELEVATION_DEG),
                 }
                 try:
                     detected = pass_detector.detect_passes(

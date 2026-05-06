@@ -35,6 +35,21 @@ logger = get_logger()
 # Step 1 — Table, index, and constraint creation
 # ---------------------------------------------------------------------------
 
+def _add_elevation_mask_column() -> None:
+    """Add elevation_mask_deg to ground_stations if the column is missing (idempotent)."""
+    from sqlalchemy import text as sql_text
+    try:
+        with engine.connect() as conn:
+            conn.execute(sql_text(
+                "ALTER TABLE ground_stations "
+                "ADD COLUMN IF NOT EXISTS elevation_mask_deg FLOAT NOT NULL DEFAULT 10.0"
+            ))
+            conn.commit()
+        logger.info("elevation_mask_deg column ensured on ground_stations")
+    except Exception as exc:
+        logger.warning("elevation_mask_deg column check skipped", error=str(exc))
+
+
 def create_tables() -> None:
     """
     Emit CREATE TABLE IF NOT EXISTS for every model in Base.metadata.
@@ -190,6 +205,7 @@ def seed_ground_stations() -> None:
                     latitude=float(s["latitude"]),
                     longitude=float(s["longitude"]),
                     altitude_m=float(s.get("altitude_m", 0.0)),
+                    elevation_mask_deg=float(s.get("elevation_mask_deg", 10.0)),
                     is_active=True,
                 )
             )
@@ -307,6 +323,7 @@ def init_db() -> None:
     )
 
     create_tables()
+    _add_elevation_mask_column()
     _apply_autovacuum_tuning()
     verify_constraints()
     seed_ground_stations()

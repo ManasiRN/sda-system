@@ -6,6 +6,8 @@ as '**********' in repr(), logs, and error tracebacks.
 Production safety: if ENVIRONMENT=production is set and any insecure
 default value is still in place, the process refuses to start.
 """
+import json
+import os
 from typing import Any, Dict, List
 
 from pydantic import Field, SecretStr, field_validator, model_validator
@@ -13,71 +15,18 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 # ---------------------------------------------------------------------------
-# Ground station data — static infrastructure, not an env var.
-# Defined at module level so the Settings default_factory can reference it
-# without a lambda closure capturing a mutable list.
+# Ground station data — loaded from stations.json for easy editing.
+# Falls back to an empty list if the file is missing (tests, CI).
 # ---------------------------------------------------------------------------
-_GROUND_STATIONS: List[Dict[str, Any]] = [
-    # Polar / High Latitude
-    {"id": "GS001", "name": "Svalbard Satellite Station",  "latitude":  78.2290, "longitude":  15.6230, "altitude_m":  500},
-    {"id": "GS002", "name": "Troll Satellite Station",     "latitude": -72.0117, "longitude":   2.5347, "altitude_m": 1275},
-    {"id": "GS003", "name": "Fairbanks, Alaska",           "latitude":  64.8378, "longitude": -147.7164,"altitude_m":  136},
-    {"id": "GS004", "name": "Tromsø, Norway",              "latitude":  69.6492, "longitude":  18.9553, "altitude_m":   10},
-    {"id": "GS005", "name": "McMurdo Station",             "latitude": -77.8465, "longitude": 166.6680, "altitude_m":   10},
-    {"id": "GS006", "name": "Thule Air Base",              "latitude":  76.5367, "longitude": -68.7033, "altitude_m":   77},
-    {"id": "GS007", "name": "Poker Flat, Alaska",          "latitude":  65.1262, "longitude": -147.4345,"altitude_m":  165},
-    {"id": "GS008", "name": "Esrange, Sweden",             "latitude":  67.8556, "longitude":  20.9548, "altitude_m":  328},
-    # Major Ground Stations
-    {"id": "GS009", "name": "Kourou, French Guiana",       "latitude":   5.1600, "longitude": -52.6500, "altitude_m":    0},
-    {"id": "GS010", "name": "Malindi, Kenya",              "latitude":  -2.9900, "longitude":  40.1900, "altitude_m":    0},
-    {"id": "GS011", "name": "Canberra, Australia",         "latitude": -35.2809, "longitude": 149.1300, "altitude_m":  580},
-    {"id": "GS012", "name": "Santiago, Chile",             "latitude": -33.4489, "longitude": -70.6693, "altitude_m":  570},
-    {"id": "GS013", "name": "Hawaii, USA",                 "latitude":  19.8968, "longitude": -155.5828,"altitude_m":    0},
-    {"id": "GS014", "name": "Dongara, Australia",          "latitude": -29.2667, "longitude": 114.9333, "altitude_m":    0},
-    # European Network
-    {"id": "GS015", "name": "London, UK",                  "latitude":  51.5074, "longitude":  -0.1278, "altitude_m":   35},
-    {"id": "GS016", "name": "Paris, France",               "latitude":  48.8566, "longitude":   2.3522, "altitude_m":   35},
-    {"id": "GS017", "name": "Berlin, Germany",             "latitude":  52.5200, "longitude":  13.4050, "altitude_m":   34},
-    {"id": "GS018", "name": "Rome, Italy",                 "latitude":  41.9028, "longitude":  12.4964, "altitude_m":   20},
-    {"id": "GS019", "name": "Madrid, Spain",               "latitude":  40.4168, "longitude":  -3.7038, "altitude_m":  667},
-    {"id": "GS020", "name": "Moscow, Russia",              "latitude":  55.7558, "longitude":  37.6173, "altitude_m":  156},
-    {"id": "GS021", "name": "Stockholm, Sweden",           "latitude":  59.3293, "longitude":  18.0686, "altitude_m":   15},
-    {"id": "GS022", "name": "Helsinki, Finland",           "latitude":  60.1695, "longitude":  24.9354, "altitude_m":   25},
-    # North American Network
-    {"id": "GS023", "name": "New York, USA",               "latitude":  40.7128, "longitude": -74.0060, "altitude_m":   10},
-    {"id": "GS024", "name": "Los Angeles, USA",            "latitude":  34.0522, "longitude": -118.2437,"altitude_m":   71},
-    {"id": "GS025", "name": "Toronto, Canada",             "latitude":  43.6532, "longitude": -79.3832, "altitude_m":   76},
-    {"id": "GS026", "name": "Vancouver, Canada",           "latitude":  49.2827, "longitude": -123.1207,"altitude_m":    0},
-    {"id": "GS027", "name": "Mexico City, Mexico",         "latitude":  19.4326, "longitude": -99.1332, "altitude_m": 2240},
-    # South American Network
-    {"id": "GS028", "name": "Sao Paulo, Brazil",           "latitude": -23.5505, "longitude": -46.6333, "altitude_m":  760},
-    {"id": "GS029", "name": "Buenos Aires, Argentina",     "latitude": -34.6037, "longitude": -58.3816, "altitude_m":   25},
-    {"id": "GS030", "name": "Lima, Peru",                  "latitude": -12.0464, "longitude": -77.0428, "altitude_m":  155},
-    {"id": "GS031", "name": "Bogota, Colombia",            "latitude":   4.7110, "longitude": -74.0721, "altitude_m": 2640},
-    # Asian Network
-    {"id": "GS032", "name": "Tokyo, Japan",                "latitude":  35.6895, "longitude": 139.6917, "altitude_m":   40},
-    {"id": "GS033", "name": "Beijing, China",              "latitude":  39.9042, "longitude": 116.4074, "altitude_m":   45},
-    {"id": "GS034", "name": "Seoul, South Korea",          "latitude":  37.5665, "longitude": 126.9780, "altitude_m":   38},
-    {"id": "GS035", "name": "Delhi, India",                "latitude":  28.7041, "longitude":  77.1025, "altitude_m":  216},
-    {"id": "GS036", "name": "Singapore",                   "latitude":   1.3521, "longitude": 103.8198, "altitude_m":   15},
-    {"id": "GS037", "name": "Bangkok, Thailand",           "latitude":  13.7367, "longitude": 100.5231, "altitude_m":    0},
-    {"id": "GS038", "name": "Jakarta, Indonesia",          "latitude":  -6.2088, "longitude": 106.8456, "altitude_m":    8},
-    # Middle East & Africa
-    {"id": "GS039", "name": "Dubai, UAE",                  "latitude":  25.2769, "longitude":  55.2962, "altitude_m":    0},
-    {"id": "GS040", "name": "Cairo, Egypt",                "latitude":  30.0444, "longitude":  31.2357, "altitude_m":   23},
-    {"id": "GS041", "name": "Istanbul, Turkey",            "latitude":  41.0082, "longitude":  28.9784, "altitude_m":   39},
-    {"id": "GS042", "name": "Cape Town, South Africa",     "latitude": -33.9249, "longitude":  18.4241, "altitude_m":    0},
-    {"id": "GS043", "name": "Nairobi, Kenya",              "latitude":  -1.2921, "longitude":  36.8219, "altitude_m": 1795},
-    {"id": "GS044", "name": "Lagos, Nigeria",              "latitude":   6.5244, "longitude":   3.3792, "altitude_m":    0},
-    # Pacific & Oceania
-    {"id": "GS045", "name": "Sydney, Australia",           "latitude": -33.8688, "longitude": 151.2093, "altitude_m":    0},
-    {"id": "GS046", "name": "Auckland, New Zealand",       "latitude": -36.8485, "longitude": 174.7633, "altitude_m":    0},
-    {"id": "GS047", "name": "Manila, Philippines",         "latitude":  14.5995, "longitude": 120.9842, "altitude_m":    0},
-    # Additional Strategic Locations
-    {"id": "GS048", "name": "Primrose, Canada",            "latitude":  58.6678, "longitude": -114.6489,"altitude_m":  210},
-    {"id": "GS049", "name": "Gdansk, Poland",              "latitude":  54.3520, "longitude":  18.6466, "altitude_m":    0},
-    {"id": "GS050", "name": "Andøya, Norway",              "latitude":  69.2944, "longitude":  16.0164, "altitude_m":    0},
-]
+def _load_stations() -> List[Dict[str, Any]]:
+    path = os.path.join(os.path.dirname(__file__), "stations.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return []
+
+_GROUND_STATIONS: List[Dict[str, Any]] = _load_stations()
 
 
 class Settings(BaseSettings):

@@ -92,6 +92,7 @@ class GroundStation(Base):
     latitude: Mapped[float] = mapped_column(Float, nullable=False)
     longitude: Mapped[float] = mapped_column(Float, nullable=False)
     altitude_m: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    elevation_mask_deg: Mapped[float] = mapped_column(Float, nullable=False, default=10.0)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     def __repr__(self) -> str:

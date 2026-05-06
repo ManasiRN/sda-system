@@ -343,6 +343,7 @@
   <button onclick="showPage('schedule',this)">Schedule</button>
   <button onclick="showPage('admin',this)">API Keys</button>
   <button onclick="showPage('health',this)">Health</button>
+  <button onclick="showPage('live',this)">⬤ Live</button>
 </nav>
 
 <!-- ══════════════════════════════════════════════════
@@ -514,6 +515,37 @@
     </div>
   </div>
 
+  <!-- ── Page: Live ────────────────────────────────── -->
+  <div class="page" id="page-live">
+    <div class="section-header">
+      <div class="section-title">Live System Feed</div>
+      <span id="ws-status" style="font-size:12px;color:var(--muted)">Connecting…</span>
+    </div>
+
+    <div class="grid-4" style="margin-bottom:24px">
+      <div class="card"><div class="card-title">Total Passes</div><div class="card-value" id="live-total">—</div></div>
+      <div class="card"><div class="card-title">Scheduled</div><div class="card-value" id="live-scheduled">—</div></div>
+      <div class="card"><div class="card-title">Satellites Tracked</div><div class="card-value" id="live-sats">—</div></div>
+      <div class="card"><div class="card-title">New (last 60s)</div><div class="card-value" id="live-recent" style="color:var(--accent2)">—</div></div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-title" style="margin-bottom:12px">Queue Depths</div>
+      <div id="live-queues" style="display:flex;gap:24px;flex-wrap:wrap">
+        <span style="color:var(--muted);font-size:13px">Waiting for data…</span>
+      </div>
+    </div>
+
+    <div class="card" style="padding:0">
+      <div style="padding:12px 16px;border-bottom:1px solid var(--border);font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">
+        Event Log
+      </div>
+      <div id="live-feed" style="height:320px;overflow-y:auto;font-family:monospace;font-size:12px;padding:8px 16px">
+        <div style="color:var(--muted);padding:8px 0">Connecting to WebSocket…</div>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Page: Health ───────────────────────────────── -->
   <div class="page" id="page-health">
     <div class="section-header">
@@ -603,6 +635,7 @@ function showPage(name, btn) {
   if (name === 'coverage') loadCoverage();
   if (name === 'admin') loadKeys();
   if (name === 'health') loadHealth();
+  if (name === 'live' && ws && ws.readyState !== WebSocket.OPEN) connectWS();
 }
 
 function fmt(dt) {
@@ -920,6 +953,79 @@ document.getElementById('modal-create').addEventListener('click', e => {
 document.getElementById('modal-rawkey').addEventListener('click', e => {
   if (e.target === e.currentTarget) closeRawKeyModal();
 });
+
+// ── Default date range: past 7 days ──────────────────
+(function setDefaultDates() {
+  const now   = new Date();
+  const week  = new Date(now - 7 * 86400 * 1000);
+  const toLocal = d => d.toISOString().slice(0, 16);
+  document.getElementById('f-start').value = toLocal(week);
+  document.getElementById('f-end').value   = toLocal(now);
+})();
+
+// ── WebSocket live feed ───────────────────────────────
+let ws = null;
+const MAX_LOG_LINES = 100;
+
+function connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws/events`);
+
+  ws.onopen = () => {
+    document.getElementById('ws-status').textContent = '● Connected';
+    document.getElementById('ws-status').style.color = 'var(--accent2)';
+    appendLog('WebSocket connected', 'info');
+  };
+
+  ws.onmessage = (ev) => {
+    try {
+      const d = JSON.parse(ev.data);
+      document.getElementById('live-total').textContent     = (d.total_passes     ?? '—').toLocaleString();
+      document.getElementById('live-scheduled').textContent = (d.scheduled_passes  ?? '—').toLocaleString();
+      document.getElementById('live-sats').textContent      = (d.satellites_tracked ?? '—').toLocaleString();
+      document.getElementById('live-recent').textContent    = d.recent_passes_60s ?? '—';
+
+      const qDiv = document.getElementById('live-queues');
+      if (d.queues && Object.keys(d.queues).length) {
+        qDiv.innerHTML = Object.entries(d.queues).map(([q, n]) =>
+          `<div style="text-align:center;min-width:90px">
+            <div style="font-size:22px;font-weight:700;color:${n > 50 ? 'var(--warn)' : n > 0 ? 'var(--accent)' : 'var(--accent2)'}">${n}</div>
+            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;margin-top:2px">${q}</div>
+          </div>`
+        ).join('');
+      }
+
+      const ts = new Date(d.timestamp).toISOString().replace('T',' ').slice(0,19);
+      appendLog(`[${ts}] passes=${d.total_passes} sched=${d.scheduled_passes} new60s=${d.recent_passes_60s} queues=${JSON.stringify(d.queues||{})}`, 'data');
+    } catch(e) { appendLog('Parse error: ' + e.message, 'error'); }
+  };
+
+  ws.onclose = () => {
+    document.getElementById('ws-status').textContent = '○ Disconnected — reconnecting…';
+    document.getElementById('ws-status').style.color = 'var(--warn)';
+    appendLog('WebSocket closed — reconnecting in 5s', 'warn');
+    setTimeout(connectWS, 5000);
+  };
+
+  ws.onerror = () => {
+    appendLog('WebSocket error', 'error');
+  };
+}
+
+function appendLog(msg, type='data') {
+  const feed = document.getElementById('live-feed');
+  if (!feed) return;
+  const color = type === 'error' ? 'var(--danger)' : type === 'warn' ? 'var(--warn)' : type === 'info' ? 'var(--accent)' : 'var(--text)';
+  const div = document.createElement('div');
+  div.style.cssText = `color:${color};padding:2px 0;border-bottom:1px solid rgba(30,42,58,.4)`;
+  div.textContent = msg;
+  feed.appendChild(div);
+  // Keep max lines
+  while (feed.children.length > MAX_LOG_LINES) feed.removeChild(feed.firstChild);
+  feed.scrollTop = feed.scrollHeight;
+}
+
+connectWS();
 
 // ── Init ────────────────────────────────────────────────
 loadHealth();

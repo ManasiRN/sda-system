@@ -32,13 +32,15 @@ Fixes vs. original
     exc_info=True as a traceback capture; it was logged as a literal kv-pair.
 """
 
+import asyncio
 import os
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 
 import redis.asyncio as aioredis
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -273,6 +275,54 @@ async def health_check() -> JSONResponse:
 # ---------------------------------------------------------------------------
 # Exception handlers
 # ---------------------------------------------------------------------------
+
+_ws_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ws_snapshot")
+
+
+def _ws_snapshot() -> Dict[str, Any]:
+    """Collect live stats from DB + Redis for WebSocket broadcast."""
+    from ..db.models import SatellitePass, TLE
+    from ..db.session import SessionLocal
+    import redis as sync_redis
+
+    now = datetime.now(timezone.utc)
+    payload: Dict[str, Any] = {"timestamp": now.isoformat(), "type": "snapshot"}
+
+    db = SessionLocal()
+    try:
+        cutoff = now - timedelta(seconds=60)
+        payload["recent_passes_60s"]  = db.query(SatellitePass).filter(SatellitePass.created_at >= cutoff).count()
+        payload["total_passes"]        = db.query(SatellitePass).count()
+        payload["scheduled_passes"]    = db.query(SatellitePass).filter(SatellitePass.is_scheduled == True).count()  # noqa: E712
+        payload["satellites_tracked"]  = db.query(TLE.norad_id).distinct().count()
+    except Exception as exc:
+        payload["db_error"] = str(exc)
+    finally:
+        db.close()
+
+    try:
+        r: sync_redis.Redis = sync_redis.from_url(settings.CELERY_BROKER_URL, decode_responses=True)  # type: ignore[assignment]
+        payload["queues"] = {q: int(r.llen(q)) for q in ("ingestion", "propagation", "scheduling")}
+        r.close()
+    except Exception:
+        payload["queues"] = {}
+
+    return payload
+
+
+@app.websocket("/ws/events")
+async def websocket_events(websocket: WebSocket) -> None:
+    """Push live system snapshots every 3 seconds to connected clients."""
+    await websocket.accept()
+    loop = asyncio.get_event_loop()
+    try:
+        while True:
+            snapshot = await loop.run_in_executor(_ws_executor, _ws_snapshot)
+            await websocket.send_json(snapshot)
+            await asyncio.sleep(3)
+    except (WebSocketDisconnect, Exception):
+        pass
+
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:

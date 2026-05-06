@@ -169,7 +169,7 @@ class PassDetector:
            crossing times, interpolated azimuths, and parabolic max elevation.
         """
         n    = len(times)
-        mask = config.MIN_ELEVATION_DEG
+        mask = float(station.get("elevation_mask_deg", config.MIN_ELEVATION_DEG))
 
         # --- Step 1: NaN sanitisation ---------------------------------------
         # NaN elevations arise from invalid SGP4 steps that slipped through
