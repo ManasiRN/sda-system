@@ -7,10 +7,10 @@ Raw keys are returned ONLY on creation; only the SHA-256 hash is stored.
 
 import hashlib
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request, status
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
@@ -191,6 +191,106 @@ async def trigger_ingest_tles(
 
     background_tasks.add_task(_run_ingest)
     return {"status": "accepted", "message": "TLE ingestion started — check /health in ~60s"}
+
+
+@router.post("/tasks/run-pipeline", status_code=status.HTTP_202_ACCEPTED)
+async def trigger_run_pipeline(
+    background_tasks: BackgroundTasks,
+    limit: int = Query(200, ge=1, le=5000, description="Max satellites to process"),
+    _: None = Depends(_require_admin),
+) -> Dict[str, Any]:
+    """
+    Run the full pipeline directly: detect passes + greedy schedule.
+    No Celery workers required. Takes 2-10 min depending on limit.
+    Check /api/coverage afterwards to see results.
+    """
+    from ...db.models import TLE, GroundStation, SatellitePass
+    from ...db.session import SessionLocal
+    from ...propagation.pass_detector import pass_detector
+    from ...propagation.sgp4_engine import sgp4_engine
+    from ...scheduling.greedy import GreedyScheduler
+    from ...config import config as sda_config
+
+    def _run() -> None:
+        db = SessionLocal()
+        try:
+            now      = datetime.now(timezone.utc)
+            end_time = now + timedelta(days=sda_config.PROPAGATION_DAYS)
+
+            tles     = db.query(TLE).filter(TLE.is_current == True).limit(limit).all()  # noqa: E712
+            stations = db.query(GroundStation).filter(GroundStation.is_active == True).all()  # noqa: E712
+
+            if not tles or not stations:
+                return
+
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
+            from sqlalchemy import Table
+            from typing import cast as tcast
+
+            _table: Table = tcast(Table, SatellitePass.__table__)
+
+            for tle in tles:
+                try:
+                    result = sgp4_engine.propagate(
+                        line1=tle.line1, line2=tle.line2,
+                        norad_id=tle.norad_id, start_time=now, name=tle.name or "",
+                    )
+                except Exception:
+                    continue
+
+                if not result.is_usable() or len(result.valid_positions) == 0:
+                    continue
+
+                rows: List[Dict] = []
+                for station in stations:
+                    station_dict = {
+                        "id":                 station.station_id,
+                        "latitude":           station.latitude,
+                        "longitude":          station.longitude,
+                        "altitude_m":         station.altitude_m,
+                        "elevation_mask_deg": getattr(station, "elevation_mask_deg", sda_config.MIN_ELEVATION_DEG),
+                    }
+                    try:
+                        detected = pass_detector.detect_passes(
+                            result.valid_positions, result.valid_times, station_dict
+                        )
+                    except Exception:
+                        continue
+                    for p in detected:
+                        rows.append({
+                            "norad_id":           tle.norad_id,
+                            "station_id":         station.station_id,
+                            "rise_time":          p["rise_time"],
+                            "set_time":           p["set_time"],
+                            "duration_seconds":   p["duration_seconds"],
+                            "max_elevation":      p["max_elevation"],
+                            "max_elevation_time": p["max_elevation_time"],
+                            "azimuth_at_rise":    p.get("azimuth_at_rise"),
+                            "azimuth_at_set":     p.get("azimuth_at_set"),
+                            "azimuth_at_max":     p.get("azimuth_at_max"),
+                            "is_scheduled":       False,
+                            "tle_epoch":          tle.epoch,
+                        })
+
+                if rows:
+                    stmt = pg_insert(_table).values(rows).on_conflict_do_nothing(
+                        index_elements=["norad_id", "station_id", "rise_time"]
+                    )
+                    db.execute(stmt)
+                    db.commit()
+
+            # Greedy scheduling pass
+            scheduler = GreedyScheduler(session=db)
+            scheduler.schedule_all_stations(now, end_time)
+
+        finally:
+            db.close()
+
+    background_tasks.add_task(_run)
+    return {
+        "status":  "accepted",
+        "message": f"Pipeline started for up to {limit} satellites — check /api/coverage in ~5 min",
+    }
 
 
 @router.delete("/api-keys/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
