@@ -112,20 +112,23 @@ async def lifespan(app: FastAPI):
         redis_url=settings.REDIS_URL,
     )
 
-    await cache.connect()
+    try:
+        await cache.connect()
+    except Exception as exc:
+        # Redis temporarily unavailable — app starts in degraded mode.
+        # The cache circuit-breaker will retry on each request.
+        logger.warning("redis_cache_connect_failed_at_startup", error=str(exc))
 
-    # Fix: was `await redis.from_url(...)` — from_url() is NOT a coroutine;
-    # awaiting a Redis instance raises TypeError at every startup.
     redis_client: aioredis.Redis = aioredis.from_url(
         settings.REDIS_URL,
         encoding="utf-8",
-        decode_responses=False,  # middleware handles bytes → str decode explicitly
+        decode_responses=False,
     )
 
     app.state.redis_client = redis_client
     app.state.api_key_auth  = APIKeyAuth(redis_client)
     app.state.rate_limiter  = RateLimiter(redis_client)
-    app.state.cache         = cache   # Fix: was never set — routes always got None
+    app.state.cache         = cache
 
     logger.info("sda_api_ready")
     yield
