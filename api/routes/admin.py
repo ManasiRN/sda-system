@@ -1,5 +1,5 @@
 """
-api/routes/admin.py — API key lifecycle management (create / list / revoke).
+api/routes/admin.py — API key lifecycle management + direct pipeline trigger.
 
 All endpoints require X-Admin-Key header matching ADMIN_API_KEY from config.
 Raw keys are returned ONLY on creation; only the SHA-256 hash is stored.
