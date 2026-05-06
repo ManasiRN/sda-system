@@ -299,6 +299,58 @@ async def trigger_run_pipeline(
     }
 
 
+@router.post("/tasks/debug-pipeline")
+def debug_pipeline(_: None = Depends(_require_admin)) -> Dict[str, Any]:
+    """Run pipeline for 1 satellite synchronously and return diagnostic result."""
+    try:
+        from sda_system.db.models import TLE, GroundStation, SatellitePass
+        from sda_system.db.session import SessionLocal
+        from sda_system.propagation.pass_detector import pass_detector
+        from sda_system.propagation.sgp4_engine import sgp4_engine
+        from sda_system.config import config as sda_config
+    except Exception as exc:
+        return {"error": "import_failed", "detail": str(exc)}
+
+    db = SessionLocal()
+    try:
+        now  = datetime.now(timezone.utc)
+        tle  = db.query(TLE).filter(TLE.is_current == True).first()  # noqa: E712
+        if not tle:
+            return {"error": "no_tles_in_db"}
+        stations = db.query(GroundStation).filter(GroundStation.is_active == True).limit(3).all()  # noqa: E712
+        if not stations:
+            return {"error": "no_stations_in_db"}
+        try:
+            result = sgp4_engine.propagate(
+                line1=tle.line1, line2=tle.line2,
+                norad_id=tle.norad_id, start_time=now, name=tle.name or "",
+            )
+        except Exception as exc:
+            return {"error": "propagation_failed", "detail": str(exc)}
+        if not result.is_usable():
+            return {"error": "propagation_not_usable", "valid_pct": result.valid_fraction}
+        passes_found = 0
+        for station in stations:
+            station_dict = {
+                "id": station.station_id, "latitude": station.latitude,
+                "longitude": station.longitude, "altitude_m": station.altitude_m,
+                "elevation_mask_deg": getattr(station, "elevation_mask_deg", sda_config.MIN_ELEVATION_DEG),
+            }
+            detected = pass_detector.detect_passes(result.valid_positions, result.valid_times, station_dict)
+            passes_found += len(detected)
+        return {
+            "status": "ok",
+            "tle_norad_id": tle.norad_id,
+            "valid_positions": len(result.valid_positions),
+            "stations_checked": len(stations),
+            "passes_found": passes_found,
+        }
+    except Exception as exc:
+        return {"error": str(exc), "type": type(exc).__name__}
+    finally:
+        db.close()
+
+
 @router.delete("/api-keys/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
 def revoke_api_key(
     key_id: int,
