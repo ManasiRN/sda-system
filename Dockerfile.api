@@ -34,7 +34,8 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONPATH=/app
 ENV PYTHONHASHSEED=random
 
-RUN useradd -m -u 1000 -s /bin/bash appuser && \
+RUN sed -i 's/\r$//' /entrypoint.sh && \
+    useradd -m -u 1000 -s /bin/bash appuser && \
     chown -R appuser:appuser /app && \
     chmod +x /entrypoint.sh
 USER appuser
