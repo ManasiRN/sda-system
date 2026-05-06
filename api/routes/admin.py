@@ -8,9 +8,9 @@ Raw keys are returned ONLY on creation; only the SHA-256 hash is stored.
 import hashlib
 import secrets
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request, status
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
@@ -165,6 +165,32 @@ def update_api_key(
     db.commit()
     db.refresh(key)
     return _to_response(key)
+
+
+@router.post("/tasks/ingest-tles", status_code=status.HTTP_202_ACCEPTED)
+async def trigger_ingest_tles(
+    background_tasks: BackgroundTasks,
+    _: None = Depends(_require_admin),
+) -> Dict[str, Any]:
+    """
+    Trigger TLE ingestion directly in the API process (no Celery worker needed).
+    Returns immediately; ingestion runs in the background (~20-40s).
+    Check /health afterwards to confirm TLE data is present.
+    """
+    from ...ingestion.fetcher import TLEFetcher
+    from ...db.session import SessionLocal
+
+    async def _run_ingest() -> None:
+        db = SessionLocal()
+        try:
+            fetcher = TLEFetcher(db)
+            fetcher.init_ground_stations()
+            await fetcher.fetch_all()
+        finally:
+            db.close()
+
+    background_tasks.add_task(_run_ingest)
+    return {"status": "accepted", "message": "TLE ingestion started — check /health in ~60s"}
 
 
 @router.delete("/api-keys/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
