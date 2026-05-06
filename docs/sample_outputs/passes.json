@@ -1,0 +1,66 @@
+{
+  "endpoint": "GET /api/passes?station_id=1&start_time=2025-05-04T00:00:00Z&end_time=2025-05-05T00:00:00Z&page=1&page_size=5",
+  "response": {
+    "data": [
+      {
+        "id": 1041,
+        "satellite_id": 25544,
+        "station_id": 1,
+        "rise_time": "2025-05-04T01:12:34Z",
+        "set_time": "2025-05-04T01:22:11Z",
+        "max_elevation": 67.3,
+        "duration_seconds": 577.0,
+        "is_scheduled": true,
+        "scheduled_by": "greedy"
+      },
+      {
+        "id": 1042,
+        "satellite_id": 43013,
+        "station_id": 1,
+        "rise_time": "2025-05-04T02:44:09Z",
+        "set_time": "2025-05-04T02:55:48Z",
+        "max_elevation": 34.1,
+        "duration_seconds": 699.0,
+        "is_scheduled": true,
+        "scheduled_by": "ortools"
+      },
+      {
+        "id": 1043,
+        "satellite_id": 48274,
+        "station_id": 1,
+        "rise_time": "2025-05-04T04:07:22Z",
+        "set_time": "2025-05-04T04:13:55Z",
+        "max_elevation": 15.8,
+        "duration_seconds": 393.0,
+        "is_scheduled": false,
+        "scheduled_by": null
+      },
+      {
+        "id": 1044,
+        "satellite_id": 27424,
+        "station_id": 1,
+        "rise_time": "2025-05-04T06:31:01Z",
+        "set_time": "2025-05-04T06:41:44Z",
+        "max_elevation": 52.4,
+        "duration_seconds": 643.0,
+        "is_scheduled": true,
+        "scheduled_by": "greedy"
+      },
+      {
+        "id": 1045,
+        "satellite_id": 39084,
+        "station_id": 1,
+        "rise_time": "2025-05-04T08:19:55Z",
+        "set_time": "2025-05-04T08:26:03Z",
+        "max_elevation": 21.9,
+        "duration_seconds": 368.0,
+        "is_scheduled": true,
+        "scheduled_by": "ortools"
+      }
+    ],
+    "total_count": 47,
+    "page": 1,
+    "page_size": 5,
+    "next_page": 2
+  }
+}

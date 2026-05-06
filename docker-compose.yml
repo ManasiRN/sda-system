@@ -1,0 +1,205 @@
+services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB:-sda_db}
+      POSTGRES_USER:     ${POSTGRES_USER:-sda_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+
+  # ── Redis ───────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+
+  # ── FastAPI ─────────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL:              postgresql://${POSTGRES_USER:-sda_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-sda_db}
+      REDIS_URL:                 ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL:         ${CELERY_BROKER_URL:-redis://redis:6379/1}
+      CELERY_RESULT_BACKEND:     ${CELERY_RESULT_BACKEND:-redis://redis:6379/2}
+      ORTOOLS_TIME_LIMIT_SECONDS: ${ORTOOLS_TIME_LIMIT_SECONDS:-30}
+      MAX_WORKERS:               ${MAX_WORKERS:-4}
+      API_KEY_REQUIRED:          ${API_KEY_REQUIRED:-true}
+      API_KEY_SALT:              ${API_KEY_SALT:?Set API_KEY_SALT in .env}
+      ADMIN_API_KEY:             ${ADMIN_API_KEY:?Set ADMIN_API_KEY in .env}
+      ENVIRONMENT:               ${ENVIRONMENT:-production}
+      LOG_LEVEL:                 ${LOG_LEVEL:-INFO}
+      CORS_ORIGINS:              ${CORS_ORIGINS:-[]}
+      TLE_STALE_ALERT_HOURS:     ${TLE_STALE_ALERT_HOURS:-24}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+
+  # ── Celery workers ──────────────────────────────────────────────────────────
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    # concurrency=1: one propagation task per container at a time prevents OOM
+    # when two SGP4 jobs run simultaneously inside the same 2G memory budget.
+    command: ["celery", "-A", "sda_system.workers.celery_app", "worker",
+              "--loglevel=info", "--concurrency=1",
+              "--queues=ingestion,propagation,scheduling,errors"]
+    environment:
+      DATABASE_URL:              postgresql://${POSTGRES_USER:-sda_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-sda_db}
+      REDIS_URL:                 ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL:         ${CELERY_BROKER_URL:-redis://redis:6379/1}
+      CELERY_RESULT_BACKEND:     ${CELERY_RESULT_BACKEND:-redis://redis:6379/2}
+      ORTOOLS_TIME_LIMIT_SECONDS: ${ORTOOLS_TIME_LIMIT_SECONDS:-30}
+      MAX_WORKERS:               ${MAX_WORKERS:-4}
+      ENVIRONMENT:               ${ENVIRONMENT:-production}
+      LOG_LEVEL:                 ${LOG_LEVEL:-INFO}
+      TLE_FALLBACK_URLS:         ${TLE_FALLBACK_URLS:-[]}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+
+  # ── Celery beat (scheduler) ─────────────────────────────────────────────────
+  beat:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    command: ["celery", "-A", "sda_system.workers.celery_app", "beat", "--loglevel=info"]
+    environment:
+      DATABASE_URL:          postgresql://${POSTGRES_USER:-sda_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-sda_db}
+      REDIS_URL:             ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL:     ${CELERY_BROKER_URL:-redis://redis:6379/1}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/2}
+      ENVIRONMENT:           ${ENVIRONMENT:-production}
+      SKIP_DB_INIT:          "1"
+    depends_on:
+      - redis
+      - postgres
+    healthcheck:
+      test: ["CMD-SHELL", "cat /proc/1/cmdline | grep -q celery"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          memory: 256M
+
+  # ── Flower (Celery task monitor) ────────────────────────────────────────────
+  flower:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    command: ["celery", "-A", "sda_system.workers.celery_app", "flower", "--port=5555"]
+    ports:
+      - "5555:5555"
+    environment:
+      DATABASE_URL:          postgresql://${POSTGRES_USER:-sda_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-sda_db}
+      REDIS_URL:             ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL:     ${CELERY_BROKER_URL:-redis://redis:6379/1}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/2}
+      FLOWER_BASIC_AUTH:     ${FLOWER_BASIC_AUTH:?Set FLOWER_BASIC_AUTH in .env}
+      SKIP_DB_INIT:          "1"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5555/healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          memory: 256M
+
+  # ── nginx (TLS termination + reverse proxy) ─────────────────────────────────
+  # Prerequisites: run  bash nginx/generate_certs.sh  before first  docker compose up
+  nginx:
+    image: nginx:1.25-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/nginx-health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          memory: 64M
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  default:
+    driver: bridge

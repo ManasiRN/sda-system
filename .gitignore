@@ -1,0 +1,161 @@
+# ============================================
+# Python
+# ============================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ============================================
+# Environment & Secrets (CRITICAL)
+# ============================================
+.env
+.env.local
+.env.*.local
+!.env.example
+!.env.test
+*.pem
+*.key
+*.crt
+*.p12
+secrets/
+credentials/
+*.secret
+
+# ============================================
+# IDE & Editor
+# ============================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.vscode/
+.idea/
+*.sublime-*
+.project
+.pydevproject
+.settings/
+
+# ============================================
+# Testing & Coverage
+# ============================================
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+.benchmarks/
+*.cover
+.hypothesis/
+test-results/
+junit.xml
+
+# ============================================
+# Docker
+# ============================================
+*.log
+*.pid
+docker-compose.override.yml
+.dockerignore
+
+# ============================================
+# Database
+# ============================================
+*.db
+*.sqlite
+*.sqlite3
+*.pgsql
+*.dump
+
+# ============================================
+# Logs & Temporary Files
+# ============================================
+logs/
+*.log
+temp/
+tmp/
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# ============================================
+# OS Generated Files
+# ============================================
+Thumbs.db
+desktop.ini
+*.exe
+*.dll
+*.so
+*.dylib
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# ============================================
+# Application Specific
+# ============================================
+# TLE Cache
+tle_cache/
+pass_cache/
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+celerybeat-schedule.db
+
+# Prometheus
+prometheus-data/
+*.prom
+
+# Reports
+reports/
+reports/*.html
+reports/*.xml
+coverage.xml
+coverage.html
+
+# Frontend (must be committed)
+!frontend/
+!frontend/**
+
+# ============================================
+# Security Tools
+# ============================================
+.safety-scan/
+bandit-report/
+*.sarif
+
+# ============================================
+# Claude Code / AI tooling
+# ============================================
+.claude/
+
+# ============================================
+# SSL certificates (generated locally)
+# ============================================
+nginx/ssl/

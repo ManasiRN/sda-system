@@ -1,0 +1,13 @@
+{
+  "endpoint": "GET /health",
+  "response": {
+    "status": "healthy",
+    "timestamp": "2025-05-04T09:32:11.847Z",
+    "services": {
+      "database": "connected",
+      "redis": "connected"
+    },
+    "cache_hit_ratio": 0.73,
+    "last_ingest": "2025-05-04T06:00:04.123Z"
+  }
+}

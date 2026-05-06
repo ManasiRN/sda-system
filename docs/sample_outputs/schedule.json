@@ -1,0 +1,98 @@
+{
+  "endpoint": "GET /api/schedule?station_id=3&schedule_date=2025-05-04",
+  "response": {
+    "station_id": 3,
+    "date": "2025-05-04",
+    "scheduled_passes": 8,
+    "passes": [
+      {
+        "id": 2301,
+        "satellite_id": 25544,
+        "station_id": 3,
+        "rise_time": "2025-05-04T00:47:12Z",
+        "set_time": "2025-05-04T00:57:34Z",
+        "max_elevation": 78.2,
+        "duration_seconds": 622.0,
+        "is_scheduled": true,
+        "scheduled_by": "greedy"
+      },
+      {
+        "id": 2302,
+        "satellite_id": 48915,
+        "station_id": 3,
+        "rise_time": "2025-05-04T02:13:08Z",
+        "set_time": "2025-05-04T02:22:41Z",
+        "max_elevation": 42.6,
+        "duration_seconds": 573.0,
+        "is_scheduled": true,
+        "scheduled_by": "greedy"
+      },
+      {
+        "id": 2303,
+        "satellite_id": 43205,
+        "station_id": 3,
+        "rise_time": "2025-05-04T04:55:30Z",
+        "set_time": "2025-05-04T05:04:19Z",
+        "max_elevation": 28.3,
+        "duration_seconds": 529.0,
+        "is_scheduled": true,
+        "scheduled_by": "ortools"
+      },
+      {
+        "id": 2304,
+        "satellite_id": 37820,
+        "station_id": 3,
+        "rise_time": "2025-05-04T07:31:44Z",
+        "set_time": "2025-05-04T07:42:02Z",
+        "max_elevation": 61.1,
+        "duration_seconds": 618.0,
+        "is_scheduled": true,
+        "scheduled_by": "greedy"
+      },
+      {
+        "id": 2305,
+        "satellite_id": 49260,
+        "station_id": 3,
+        "rise_time": "2025-05-04T09:08:55Z",
+        "set_time": "2025-05-04T09:16:22Z",
+        "max_elevation": 18.7,
+        "duration_seconds": 447.0,
+        "is_scheduled": true,
+        "scheduled_by": "ortools"
+      },
+      {
+        "id": 2306,
+        "satellite_id": 33499,
+        "station_id": 3,
+        "rise_time": "2025-05-04T12:44:17Z",
+        "set_time": "2025-05-04T12:55:08Z",
+        "max_elevation": 55.4,
+        "duration_seconds": 651.0,
+        "is_scheduled": true,
+        "scheduled_by": "greedy"
+      },
+      {
+        "id": 2307,
+        "satellite_id": 44878,
+        "station_id": 3,
+        "rise_time": "2025-05-04T16:22:03Z",
+        "set_time": "2025-05-04T16:30:49Z",
+        "max_elevation": 33.0,
+        "duration_seconds": 526.0,
+        "is_scheduled": true,
+        "scheduled_by": "ortools"
+      },
+      {
+        "id": 2308,
+        "satellite_id": 27607,
+        "station_id": 3,
+        "rise_time": "2025-05-04T20:01:38Z",
+        "set_time": "2025-05-04T20:11:55Z",
+        "max_elevation": 47.9,
+        "duration_seconds": 617.0,
+        "is_scheduled": true,
+        "scheduled_by": "greedy"
+      }
+    ]
+  }
+}

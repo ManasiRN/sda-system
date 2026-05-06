@@ -1,0 +1,56 @@
+{
+  "endpoint": "GET /api/coverage",
+  "response": {
+    "total_visible_satellites": 4872,
+    "greedy_scheduled": 3104,
+    "ortools_scheduled": 891,
+    "total_scheduled": 3995,
+    "coverage_pct": 82.0,
+    "greedy_coverage_pct": 63.7,
+    "ortools_improvement_pct": 18.3,
+    "unscheduled_count": 877,
+    "station_utilization": [
+      {
+        "station_id": 1,
+        "station_name": "Station_1",
+        "total_passes_visible": 2341,
+        "scheduled_passes": 412,
+        "unique_satellites_scheduled": 384,
+        "utilization_pct": 17.6
+      },
+      {
+        "station_id": 2,
+        "station_name": "Station_2",
+        "total_passes_visible": 1987,
+        "scheduled_passes": 378,
+        "unique_satellites_scheduled": 356,
+        "utilization_pct": 19.0
+      },
+      {
+        "station_id": 3,
+        "station_name": "Station_3",
+        "total_passes_visible": 2108,
+        "scheduled_passes": 391,
+        "unique_satellites_scheduled": 370,
+        "utilization_pct": 18.5
+      },
+      {
+        "station_id": 4,
+        "station_name": "Station_4",
+        "total_passes_visible": 1654,
+        "scheduled_passes": 302,
+        "unique_satellites_scheduled": 289,
+        "utilization_pct": 18.3
+      },
+      {
+        "station_id": 5,
+        "station_name": "Station_5",
+        "total_passes_visible": 2456,
+        "scheduled_passes": 443,
+        "unique_satellites_scheduled": 411,
+        "utilization_pct": 18.0
+      }
+    ],
+    "_note": "station_utilization truncated to 5 of 50 stations for brevity"
+  }
+}

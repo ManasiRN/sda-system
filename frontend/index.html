@@ -1,0 +1,929 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SDA — Satellite Pass Scheduling</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0b0f1a;
+      --surface:  #141927;
+      --border:   #1e2a3a;
+      --accent:   #3b82f6;
+      --accent2:  #10b981;
+      --warn:     #f59e0b;
+      --danger:   #ef4444;
+      --text:     #e2e8f0;
+      --muted:    #64748b;
+      --radius:   8px;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      font-size: 14px;
+    }
+
+    /* ── Layout ────────────────────────────────────── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .logo { font-size: 18px; font-weight: 700; letter-spacing: -.5px; }
+    .logo span { color: var(--accent); }
+
+    .header-right { display: flex; align-items: center; gap: 16px; }
+
+    #health-badge {
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: .5px;
+      text-transform: uppercase;
+      cursor: pointer;
+    }
+    .badge-healthy { background: rgba(16,185,129,.15); color: var(--accent2); border: 1px solid var(--accent2); }
+    .badge-degraded { background: rgba(245,158,11,.15); color: var(--warn); border: 1px solid var(--warn); }
+    .badge-error { background: rgba(239,68,68,.15); color: var(--danger); border: 1px solid var(--danger); }
+    .badge-loading { background: rgba(100,116,139,.15); color: var(--muted); border: 1px solid var(--muted); }
+
+    nav {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      display: flex;
+      gap: 4px;
+    }
+    nav button {
+      background: none;
+      border: none;
+      color: var(--muted);
+      padding: 12px 16px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      border-bottom: 2px solid transparent;
+      transition: color .15s, border-color .15s;
+    }
+    nav button:hover { color: var(--text); }
+    nav button.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    main { padding: 24px; max-width: 1400px; margin: 0 auto; }
+
+    .page { display: none; }
+    .page.active { display: block; }
+
+    /* ── Cards ─────────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+    }
+    .card-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .6px;
+      margin-bottom: 8px;
+    }
+    .card-value {
+      font-size: 32px;
+      font-weight: 700;
+      line-height: 1;
+    }
+    .card-sub { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+    .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+    .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 24px; }
+
+    @media (max-width: 900px) { .grid-4 { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 600px) { .grid-4, .grid-2 { grid-template-columns: 1fr; } }
+
+    /* ── Tables ─────────────────────────────────────── */
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th {
+      text-align: left;
+      padding: 10px 12px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: .5px;
+      text-transform: uppercase;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    td {
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(30,42,58,.6);
+      white-space: nowrap;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(59,130,246,.04); }
+
+    /* ── Filters / Controls ─────────────────────────── */
+    .filters {
+      display: flex;
+      gap: 12px;
+      align-items: flex-end;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+    .field { display: flex; flex-direction: column; gap: 4px; }
+    label { font-size: 12px; color: var(--muted); font-weight: 500; }
+    input, select {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 7px 10px;
+      font-size: 13px;
+      outline: none;
+      transition: border-color .15s;
+    }
+    input:focus, select:focus { border-color: var(--accent); }
+    input[type="password"] { font-family: monospace; letter-spacing: 2px; }
+
+    /* ── Buttons ─────────────────────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+      transition: opacity .15s, transform .1s;
+    }
+    .btn:active { transform: scale(.97); }
+    .btn:disabled { opacity: .45; cursor: not-allowed; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-success { background: var(--accent2); color: #fff; }
+    .btn-danger  { background: var(--danger); color: #fff; }
+    .btn-ghost   { background: rgba(255,255,255,.06); color: var(--text); }
+
+    /* ── Pagination ─────────────────────────────────── */
+    .pagination {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 16px;
+      justify-content: flex-end;
+    }
+    .pagination span { font-size: 12px; color: var(--muted); }
+
+    /* ── Progress bar ───────────────────────────────── */
+    .progress-wrap { background: var(--border); border-radius: 4px; height: 6px; overflow: hidden; }
+    .progress-bar  { height: 100%; border-radius: 4px; transition: width .3s; }
+
+    /* ── Status pill ────────────────────────────────── */
+    .pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .pill-green  { background: rgba(16,185,129,.15); color: var(--accent2); }
+    .pill-red    { background: rgba(239,68,68,.15);  color: var(--danger); }
+    .pill-blue   { background: rgba(59,130,246,.15); color: var(--accent); }
+    .pill-yellow { background: rgba(245,158,11,.15); color: var(--warn); }
+
+    /* ── Auth panel ──────────────────────────────────── */
+    #auth-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      margin-bottom: 24px;
+    }
+    #auth-panel summary {
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    #auth-panel summary::after { content: "▾"; transition: transform .2s; }
+    #auth-panel[open] summary::after { transform: rotate(180deg); }
+    #auth-panel .auth-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr auto;
+      gap: 12px;
+      align-items: flex-end;
+      margin-top: 16px;
+    }
+
+    /* ── Modal ────────────────────────────────────────── */
+    .modal-bg {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.7);
+      z-index: 200;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-bg.open { display: flex; }
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 24px;
+      width: 480px;
+      max-width: 95vw;
+    }
+    .modal h3 { font-size: 16px; font-weight: 600; margin-bottom: 16px; }
+    .modal .field { margin-bottom: 12px; }
+    .modal .field input { width: 100%; }
+    .modal .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+
+    /* ── Toast ────────────────────────────────────────── */
+    #toast-area {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 300;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .toast {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 16px;
+      font-size: 13px;
+      max-width: 320px;
+      animation: slideIn .2s ease;
+    }
+    .toast-success { border-left: 3px solid var(--accent2); }
+    .toast-error   { border-left: 3px solid var(--danger); }
+    .toast-info    { border-left: 3px solid var(--accent); }
+    @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+    /* ── Misc ────────────────────────────────────────── */
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .section-title { font-size: 16px; font-weight: 600; }
+    .empty { padding: 40px; text-align: center; color: var(--muted); font-size: 13px; }
+    .spinner {
+      width: 20px; height: 20px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+      display: inline-block;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    pre { font-family: monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all; }
+    code {
+      background: var(--bg);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 12px;
+    }
+    .key-raw-box {
+      background: var(--bg);
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      padding: 12px;
+      font-family: monospace;
+      font-size: 13px;
+      word-break: break-all;
+      margin: 12px 0;
+    }
+    .copy-btn { cursor: pointer; opacity: .7; }
+    .copy-btn:hover { opacity: 1; }
+  </style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════
+     HEADER
+══════════════════════════════════════════════════ -->
+<header>
+  <div class="logo">SDA <span>Mission Control</span></div>
+  <div class="header-right">
+    <span id="health-badge" class="badge-loading" onclick="loadHealth()" title="Click to refresh">● Loading…</span>
+    <span style="color:var(--muted);font-size:12px;" id="health-ts"></span>
+  </div>
+</header>
+
+<!-- ══════════════════════════════════════════════════
+     NAV TABS
+══════════════════════════════════════════════════ -->
+<nav>
+  <button class="active" onclick="showPage('coverage',this)">Coverage</button>
+  <button onclick="showPage('passes',this)">Passes</button>
+  <button onclick="showPage('schedule',this)">Schedule</button>
+  <button onclick="showPage('admin',this)">API Keys</button>
+  <button onclick="showPage('health',this)">Health</button>
+</nav>
+
+<!-- ══════════════════════════════════════════════════
+     MAIN CONTENT
+══════════════════════════════════════════════════ -->
+<main>
+
+  <!-- Auth Panel (shared across all pages) -->
+  <details id="auth-panel">
+    <summary>🔑 API Keys (required for data endpoints)</summary>
+    <div class="auth-grid">
+      <div class="field">
+        <label>X-API-Key (for passes / coverage)</label>
+        <input type="password" id="api-key-input" placeholder="Paste your API key…" autocomplete="off" />
+      </div>
+      <div class="field">
+        <label>X-Admin-Key (for key management)</label>
+        <input type="password" id="admin-key-input" placeholder="Paste your admin key…" autocomplete="off" />
+      </div>
+      <button class="btn btn-primary" onclick="saveKeys()">Save</button>
+    </div>
+  </details>
+
+  <!-- ── Page: Coverage ─────────────────────────────── -->
+  <div class="page active" id="page-coverage">
+    <div class="section-header">
+      <div class="section-title">Coverage Overview</div>
+      <button class="btn btn-ghost" onclick="loadCoverage()">↻ Refresh</button>
+    </div>
+
+    <div class="grid-4" id="cov-cards">
+      <div class="card"><div class="card-title">Total Visible</div><div class="card-value" id="cov-total">—</div><div class="card-sub">Satellites with passes</div></div>
+      <div class="card"><div class="card-title">Scheduled</div><div class="card-value" id="cov-scheduled">—</div><div class="card-sub" id="cov-pct">coverage %</div></div>
+      <div class="card"><div class="card-title">Greedy Stage</div><div class="card-value" id="cov-greedy">—</div><div class="card-sub" id="cov-greedy-pct">—</div></div>
+      <div class="card"><div class="card-title">OR-Tools Lift</div><div class="card-value" id="cov-ortools">—</div><div class="card-sub" id="cov-ortools-pct">improvement</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title" style="margin-bottom:16px">Station Utilization</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Station ID</th>
+              <th>Name</th>
+              <th>Visible Passes</th>
+              <th>Scheduled</th>
+              <th>Unique Sats</th>
+              <th>Utilization</th>
+            </tr>
+          </thead>
+          <tbody id="station-table"><tr><td colspan="6" class="empty">Load coverage to see station data</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Page: Passes ───────────────────────────────── -->
+  <div class="page" id="page-passes">
+    <div class="section-header">
+      <div class="section-title">Satellite Passes</div>
+    </div>
+
+    <div class="filters">
+      <div class="field"><label>Station ID</label><input id="f-station" placeholder="e.g. GS001" /></div>
+      <div class="field"><label>NORAD ID</label><input id="f-norad" type="number" placeholder="e.g. 25544" style="width:120px" /></div>
+      <div class="field"><label>Start (UTC)</label><input id="f-start" type="datetime-local" /></div>
+      <div class="field"><label>End (UTC)</label><input id="f-end" type="datetime-local" /></div>
+      <div class="field"><label>Page size</label>
+        <select id="f-pagesize">
+          <option value="25">25</option>
+          <option value="50" selected>50</option>
+          <option value="100">100</option>
+        </select>
+      </div>
+      <button class="btn btn-primary" onclick="loadPasses(1)">Search</button>
+    </div>
+
+    <div class="card" style="padding:0">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>NORAD ID</th>
+              <th>Station</th>
+              <th>Rise Time (UTC)</th>
+              <th>Set Time (UTC)</th>
+              <th>Max Elev °</th>
+              <th>Duration s</th>
+              <th>Scheduled</th>
+              <th>Scheduled By</th>
+            </tr>
+          </thead>
+          <tbody id="passes-table"><tr><td colspan="9" class="empty">Use the filters above and click Search</td></tr></tbody>
+        </table>
+      </div>
+      <div class="pagination" id="passes-pagination" style="padding:12px 16px"></div>
+    </div>
+  </div>
+
+  <!-- ── Page: Schedule ─────────────────────────────── -->
+  <div class="page" id="page-schedule">
+    <div class="section-header">
+      <div class="section-title">Station Schedule</div>
+    </div>
+
+    <div class="filters">
+      <div class="field"><label>Station ID</label><input id="s-station" placeholder="e.g. GS001" /></div>
+      <div class="field"><label>Date (UTC)</label><input id="s-date" type="date" /></div>
+      <button class="btn btn-primary" onclick="loadSchedule()">Load Schedule</button>
+    </div>
+
+    <div id="schedule-summary" style="display:none;margin-bottom:16px">
+      <div class="grid-2">
+        <div class="card"><div class="card-title">Station</div><div class="card-value" id="sch-station-id" style="font-size:24px">—</div></div>
+        <div class="card"><div class="card-title">Scheduled Passes</div><div class="card-value" id="sch-count">—</div><div class="card-sub" id="sch-date-label">—</div></div>
+      </div>
+    </div>
+
+    <div class="card" style="padding:0">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>NORAD ID</th>
+              <th>Rise Time (UTC)</th>
+              <th>Set Time (UTC)</th>
+              <th>Max Elev °</th>
+              <th>Duration s</th>
+              <th>Scheduled By</th>
+            </tr>
+          </thead>
+          <tbody id="schedule-table"><tr><td colspan="7" class="empty">Select a station and date above</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Page: Admin (API Keys) ─────────────────────── -->
+  <div class="page" id="page-admin">
+    <div class="section-header">
+      <div class="section-title">API Key Management</div>
+      <button class="btn btn-success" onclick="openCreateKey()">+ Create Key</button>
+    </div>
+
+    <div class="card" style="padding:0">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Name</th>
+              <th>Key (prefix)</th>
+              <th>Rate Limit/min</th>
+              <th>Active</th>
+              <th>Created</th>
+              <th>Last Used</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="keys-table"><tr><td colspan="8" class="empty">Requires X-Admin-Key — enter it above and refresh</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+    <div style="margin-top:12px;text-align:right">
+      <button class="btn btn-ghost" onclick="loadKeys()">↻ Refresh Keys</button>
+    </div>
+  </div>
+
+  <!-- ── Page: Health ───────────────────────────────── -->
+  <div class="page" id="page-health">
+    <div class="section-header">
+      <div class="section-title">System Health</div>
+      <button class="btn btn-ghost" onclick="loadHealth()">↻ Refresh</button>
+    </div>
+    <div class="card" id="health-detail">
+      <div class="empty">Click Refresh to check system health</div>
+    </div>
+  </div>
+
+</main>
+
+<!-- ══════════════════════════════════════════════════
+     MODAL — Create API Key
+══════════════════════════════════════════════════ -->
+<div class="modal-bg" id="modal-create">
+  <div class="modal">
+    <h3>Create New API Key</h3>
+    <div class="field"><label>Key Name</label><input id="new-key-name" placeholder="e.g. prod-client-1" /></div>
+    <div class="field"><label>Rate Limit (requests / minute)</label><input id="new-key-rate" type="number" value="100" min="1" max="10000" /></div>
+    <div class="actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-success" onclick="createKey()">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal — Show raw key once -->
+<div class="modal-bg" id="modal-rawkey">
+  <div class="modal">
+    <h3>⚠ Save your key — shown only once</h3>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:4px">This raw key will never be displayed again. Copy it now.</p>
+    <div class="key-raw-box" id="raw-key-display"></div>
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <button class="btn btn-ghost" onclick="copyRawKey()">📋 Copy to clipboard</button>
+      <button class="btn btn-ghost" onclick="useAsApiKey()">Use as X-API-Key</button>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary" onclick="closeRawKeyModal()">I've saved it — Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════
+     TOAST AREA
+══════════════════════════════════════════════════ -->
+<div id="toast-area"></div>
+
+<!-- ══════════════════════════════════════════════════
+     JAVASCRIPT
+══════════════════════════════════════════════════ -->
+<script>
+// ── State ─────────────────────────────────────────────
+let apiKey   = localStorage.getItem('sda_api_key')   || '';
+let adminKey = localStorage.getItem('sda_admin_key') || '';
+let passesPage = 1;
+let passesTotal = 0;
+let passesPageSize = 50;
+
+// Pre-fill inputs from localStorage on load
+document.getElementById('api-key-input').value   = apiKey;
+document.getElementById('admin-key-input').value = adminKey;
+
+// ── Utilities ─────────────────────────────────────────
+function saveKeys() {
+  apiKey   = document.getElementById('api-key-input').value.trim();
+  adminKey = document.getElementById('admin-key-input').value.trim();
+  localStorage.setItem('sda_api_key',   apiKey);
+  localStorage.setItem('sda_admin_key', adminKey);
+  toast('Keys saved', 'success');
+}
+
+function toast(msg, type='info', duration=3500) {
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  el.textContent = msg;
+  document.getElementById('toast-area').appendChild(el);
+  setTimeout(() => el.remove(), duration);
+}
+
+function showPage(name, btn) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  btn.classList.add('active');
+  if (name === 'coverage') loadCoverage();
+  if (name === 'admin') loadKeys();
+  if (name === 'health') loadHealth();
+}
+
+function fmt(dt) {
+  if (!dt) return '—';
+  return new Date(dt).toISOString().replace('T',' ').slice(0,19);
+}
+
+function pct(n) { return n.toFixed(1) + '%'; }
+
+async function apiFetch(path, opts={}) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (apiKey)   headers['X-API-Key']   = apiKey;
+  if (adminKey) headers['X-Admin-Key'] = adminKey;
+  const res = await fetch(path, { ...opts, headers: { ...headers, ...(opts.headers||{}) } });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(body.error || body.detail || res.statusText);
+  }
+  return res.json();
+}
+
+// ── Health ─────────────────────────────────────────────
+async function loadHealth() {
+  const badge = document.getElementById('health-badge');
+  badge.textContent = '● Checking…';
+  badge.className = 'badge-loading';
+  try {
+    const data = await fetch('/health').then(r => r.json());
+    const ok = data.status === 'healthy';
+    badge.textContent = '● ' + data.status.charAt(0).toUpperCase() + data.status.slice(1);
+    badge.className = ok ? 'badge-healthy' : 'badge-degraded';
+    document.getElementById('health-ts').textContent = fmt(data.timestamp);
+
+    // Detailed view
+    const detail = document.getElementById('health-detail');
+    let html = `<div style="margin-bottom:16px">
+      <span class="pill ${ok ? 'pill-green' : 'pill-yellow'}" style="font-size:14px;padding:4px 12px">
+        ${data.status}
+      </span>
+      <span style="color:var(--muted);margin-left:12px;font-size:12px">${fmt(data.timestamp)}</span>
+    </div>`;
+
+    if (data.last_ingest) {
+      html += `<p style="margin-bottom:16px;font-size:13px;color:var(--muted)">Last TLE ingest: <strong style="color:var(--text)">${fmt(data.last_ingest)}</strong></p>`;
+    }
+
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px">';
+    for (const [svc, status] of Object.entries(data.services || {})) {
+      const isObj = typeof status === 'object';
+      const isOk  = typeof status === 'string' && status.startsWith('connected');
+      html += `<div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px">
+        <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px">${svc}</div>
+        ${isObj
+          ? `<pre style="color:var(--text)">${JSON.stringify(status, null, 2)}</pre>`
+          : `<span class="pill ${isOk ? 'pill-green' : 'pill-yellow'}">${status}</span>`
+        }
+      </div>`;
+    }
+    html += '</div>';
+    detail.innerHTML = html;
+  } catch(e) {
+    badge.textContent = '● Error';
+    badge.className = 'badge-error';
+    document.getElementById('health-detail').innerHTML = `<div class="empty" style="color:var(--danger)">${e.message}</div>`;
+  }
+}
+
+// ── Coverage ───────────────────────────────────────────
+async function loadCoverage() {
+  if (!apiKey) { toast('Enter X-API-Key first', 'error'); return; }
+  try {
+    const d = await apiFetch('/api/coverage');
+
+    document.getElementById('cov-total').textContent     = d.total_visible_satellites;
+    document.getElementById('cov-scheduled').textContent = d.total_scheduled;
+    document.getElementById('cov-pct').textContent       = pct(d.coverage_pct) + ' coverage';
+    document.getElementById('cov-greedy').textContent    = d.greedy_scheduled;
+    document.getElementById('cov-greedy-pct').textContent = pct(d.greedy_coverage_pct) + ' by greedy';
+    document.getElementById('cov-ortools').textContent   = '+' + d.ortools_scheduled;
+    document.getElementById('cov-ortools-pct').textContent = '+' + pct(d.ortools_improvement_pct) + ' improvement';
+
+    const tbody = document.getElementById('station-table');
+    if (!d.station_utilization || d.station_utilization.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="empty">No station data</td></tr>';
+      return;
+    }
+    tbody.innerHTML = d.station_utilization.map(s => {
+      const util = s.utilization_pct || 0;
+      const color = util >= 75 ? '#10b981' : util >= 40 ? '#f59e0b' : '#ef4444';
+      return `<tr>
+        <td><code>${s.station_id}</code></td>
+        <td>${s.station_name}</td>
+        <td>${s.total_passes_visible}</td>
+        <td>${s.scheduled_passes}</td>
+        <td>${s.unique_satellites_scheduled}</td>
+        <td>
+          <div style="display:flex;align-items:center;gap:8px;min-width:120px">
+            <div class="progress-wrap" style="flex:1">
+              <div class="progress-bar" style="width:${Math.min(util,100)}%;background:${color}"></div>
+            </div>
+            <span style="font-size:12px;color:${color};width:40px;text-align:right">${pct(util)}</span>
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+  } catch(e) {
+    toast('Coverage error: ' + e.message, 'error');
+  }
+}
+
+// ── Passes ─────────────────────────────────────────────
+async function loadPasses(page=1) {
+  if (!apiKey) { toast('Enter X-API-Key first', 'error'); return; }
+  passesPage = page;
+  passesPageSize = parseInt(document.getElementById('f-pagesize').value);
+
+  const params = new URLSearchParams({ page, page_size: passesPageSize });
+  const station = document.getElementById('f-station').value.trim();
+  const norad   = document.getElementById('f-norad').value.trim();
+  const start   = document.getElementById('f-start').value;
+  const end     = document.getElementById('f-end').value;
+
+  if (station) params.set('station_id', station);
+  if (norad)   params.set('satellite_id', norad);
+  if (start)   params.set('start_time', new Date(start).toISOString());
+  if (end)     params.set('end_time', new Date(end).toISOString());
+
+  const tbody = document.getElementById('passes-table');
+  tbody.innerHTML = '<tr><td colspan="9" class="empty"><div class="spinner"></div></td></tr>';
+
+  try {
+    const d = await apiFetch('/api/passes?' + params);
+    passesTotal = d.total_count;
+
+    if (!d.data || d.data.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="9" class="empty">No passes found for the selected filters</td></tr>';
+    } else {
+      tbody.innerHTML = d.data.map(p => `<tr>
+        <td style="color:var(--muted)">${p.id}</td>
+        <td><code>${p.norad_id}</code></td>
+        <td><code>${p.station_id}</code></td>
+        <td>${fmt(p.rise_time)}</td>
+        <td>${fmt(p.set_time)}</td>
+        <td>${p.max_elevation.toFixed(1)}</td>
+        <td>${p.duration_seconds.toFixed(0)}</td>
+        <td><span class="pill ${p.is_scheduled ? 'pill-green' : 'pill-red'}">${p.is_scheduled ? 'Yes' : 'No'}</span></td>
+        <td>${p.scheduled_by ? `<span class="pill pill-blue">${p.scheduled_by}</span>` : '—'}</td>
+      </tr>`).join('');
+    }
+
+    // Pagination
+    const pg = document.getElementById('passes-pagination');
+    const totalPages = Math.ceil(passesTotal / passesPageSize);
+    pg.innerHTML = `
+      <span>${passesTotal} total passes — page ${page} of ${totalPages}</span>
+      <button class="btn btn-ghost" onclick="loadPasses(${page-1})" ${page <= 1 ? 'disabled' : ''}>← Prev</button>
+      <button class="btn btn-ghost" onclick="loadPasses(${page+1})" ${!d.next_page ? 'disabled' : ''}>Next →</button>
+    `;
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="9" class="empty" style="color:var(--danger)">${e.message}</td></tr>`;
+    toast('Passes error: ' + e.message, 'error');
+  }
+}
+
+// ── Schedule ───────────────────────────────────────────
+async function loadSchedule() {
+  if (!apiKey) { toast('Enter X-API-Key first', 'error'); return; }
+  const station = document.getElementById('s-station').value.trim();
+  const date    = document.getElementById('s-date').value;
+  if (!station || !date) { toast('Enter station ID and date', 'error'); return; }
+
+  const tbody = document.getElementById('schedule-table');
+  tbody.innerHTML = '<tr><td colspan="7" class="empty"><div class="spinner"></div></td></tr>';
+  document.getElementById('schedule-summary').style.display = 'none';
+
+  try {
+    const d = await apiFetch(`/api/schedule?station_id=${encodeURIComponent(station)}&schedule_date=${date}`);
+
+    document.getElementById('sch-station-id').textContent = d.station_id;
+    document.getElementById('sch-count').textContent      = d.scheduled_passes;
+    document.getElementById('sch-date-label').textContent = 'passes on ' + d.date;
+    document.getElementById('schedule-summary').style.display = 'block';
+
+    if (!d.passes || d.passes.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="empty">No scheduled passes for this station on this date</td></tr>';
+    } else {
+      tbody.innerHTML = d.passes.map(p => `<tr>
+        <td style="color:var(--muted)">${p.id}</td>
+        <td><code>${p.norad_id}</code></td>
+        <td>${fmt(p.rise_time)}</td>
+        <td>${fmt(p.set_time)}</td>
+        <td>${p.max_elevation.toFixed(1)}</td>
+        <td>${p.duration_seconds.toFixed(0)}</td>
+        <td><span class="pill pill-blue">${p.scheduled_by || '—'}</span></td>
+      </tr>`).join('');
+    }
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="7" class="empty" style="color:var(--danger)">${e.message}</td></tr>`;
+    toast('Schedule error: ' + e.message, 'error');
+  }
+}
+
+// ── Admin — API Keys ───────────────────────────────────
+async function loadKeys() {
+  if (!adminKey) { toast('Enter X-Admin-Key first', 'error'); return; }
+  const tbody = document.getElementById('keys-table');
+  tbody.innerHTML = '<tr><td colspan="8" class="empty"><div class="spinner"></div></td></tr>';
+  try {
+    const keys = await apiFetch('/admin/api-keys');
+    if (!keys || keys.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" class="empty">No API keys found. Create one above.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = keys.map(k => `<tr>
+      <td style="color:var(--muted)">${k.id}</td>
+      <td><strong>${k.name || '—'}</strong></td>
+      <td><code>${k.key_hash_prefix}</code></td>
+      <td>${k.rate_limit_per_min} req/min</td>
+      <td><span class="pill ${k.is_active ? 'pill-green' : 'pill-red'}">${k.is_active ? 'Active' : 'Revoked'}</span></td>
+      <td style="color:var(--muted)">${fmt(k.created_at)}</td>
+      <td style="color:var(--muted)">${fmt(k.last_used_at)}</td>
+      <td>
+        <div style="display:flex;gap:6px">
+          ${k.is_active
+            ? `<button class="btn btn-danger" style="padding:4px 10px;font-size:12px" onclick="revokeKey(${k.id})">Revoke</button>`
+            : `<button class="btn btn-success" style="padding:4px 10px;font-size:12px" onclick="reactivateKey(${k.id})">Reactivate</button>`
+          }
+        </div>
+      </td>
+    </tr>`).join('');
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="8" class="empty" style="color:var(--danger)">${e.message}</td></tr>`;
+    toast('Keys error: ' + e.message, 'error');
+  }
+}
+
+function openCreateKey() {
+  if (!adminKey) { toast('Enter X-Admin-Key first', 'error'); return; }
+  document.getElementById('new-key-name').value = '';
+  document.getElementById('new-key-rate').value = '100';
+  document.getElementById('modal-create').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('modal-create').classList.remove('open');
+}
+
+async function createKey() {
+  const name  = document.getElementById('new-key-name').value.trim();
+  const rate  = parseInt(document.getElementById('new-key-rate').value);
+  if (!name)     { toast('Enter a key name', 'error'); return; }
+  if (isNaN(rate) || rate < 1) { toast('Enter a valid rate limit', 'error'); return; }
+
+  try {
+    const res = await apiFetch('/admin/api-keys', {
+      method: 'POST',
+      body: JSON.stringify({ name, rate_limit_per_min: rate }),
+    });
+    closeModal();
+    // Show raw key in modal
+    document.getElementById('raw-key-display').textContent = res.raw_key;
+    document.getElementById('modal-rawkey').classList.add('open');
+    loadKeys();
+    toast('API key created', 'success');
+  } catch(e) {
+    toast('Create error: ' + e.message, 'error');
+  }
+}
+
+function copyRawKey() {
+  const key = document.getElementById('raw-key-display').textContent;
+  navigator.clipboard.writeText(key).then(() => toast('Copied!', 'success'));
+}
+
+function useAsApiKey() {
+  const key = document.getElementById('raw-key-display').textContent;
+  apiKey = key;
+  localStorage.setItem('sda_api_key', key);
+  document.getElementById('api-key-input').value = key;
+  toast('Set as X-API-Key', 'success');
+}
+
+function closeRawKeyModal() {
+  document.getElementById('modal-rawkey').classList.remove('open');
+}
+
+async function revokeKey(id) {
+  if (!confirm(`Revoke API key #${id}? It will stop working immediately.`)) return;
+  try {
+    await apiFetch(`/admin/api-keys/${id}`, { method: 'DELETE' });
+    toast('Key revoked', 'success');
+    loadKeys();
+  } catch(e) {
+    toast('Revoke error: ' + e.message, 'error');
+  }
+}
+
+async function reactivateKey(id) {
+  try {
+    await apiFetch(`/admin/api-keys/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ is_active: true }),
+    });
+    toast('Key reactivated', 'success');
+    loadKeys();
+  } catch(e) {
+    toast('Error: ' + e.message, 'error');
+  }
+}
+
+// Close modals on background click
+document.getElementById('modal-create').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeModal();
+});
+document.getElementById('modal-rawkey').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeRawKeyModal();
+});
+
+// ── Init ────────────────────────────────────────────────
+loadHealth();
+setInterval(loadHealth, 60000); // auto-refresh health every 60 s
+</script>
+</body>
+</html>
