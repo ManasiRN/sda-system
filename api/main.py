@@ -194,6 +194,12 @@ if os.path.isdir(_FRONTEND_DIR):
 # System endpoints
 # ---------------------------------------------------------------------------
 
+@app.get("/ping", include_in_schema=False)
+async def ping() -> JSONResponse:
+    """Lightweight liveness probe for Railway / load balancers."""
+    return JSONResponse({"status": "ok"})
+
+
 @app.get("/metrics", include_in_schema=False)
 async def metrics_endpoint() -> Response:
     """Prometheus scrape endpoint — exposes request counts and latencies."""
