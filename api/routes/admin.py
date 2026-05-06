@@ -212,6 +212,9 @@ async def trigger_run_pipeline(
     from ...config import config as sda_config
 
     def _run() -> None:
+        import structlog as _structlog
+        _log = _structlog.get_logger()
+        _log.info("run_pipeline_started", limit=limit)
         db = SessionLocal()
         try:
             now      = datetime.now(timezone.utc)
@@ -282,7 +285,10 @@ async def trigger_run_pipeline(
             # Greedy scheduling pass
             scheduler = GreedyScheduler(session=db)
             scheduler.schedule_all_stations(now, end_time)
+            _log.info("run_pipeline_completed", limit=limit)
 
+        except Exception as exc:
+            _log.error("run_pipeline_failed", error=str(exc), error_type=type(exc).__name__)
         finally:
             db.close()
 
