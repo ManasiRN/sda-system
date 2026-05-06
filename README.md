@@ -13,6 +13,7 @@ A production-grade **Space Domain Awareness** backend that ingests live TLE data
 - [API Reference](#api-reference)
 - [Authentication](#authentication)
 - [Frontend Dashboard](#frontend-dashboard)
+- [Ground Station Configuration](#ground-station-configuration)
 - [Monitoring](#monitoring)
 - [Pipeline Walkthrough](#pipeline-walkthrough)
 - [Scheduling Algorithms](#scheduling-algorithms)
@@ -81,6 +82,7 @@ A production-grade **Space Domain Awareness** backend that ingests live TLE data
 │   PATCH /admin/api-keys/:id update rate limit or active status         │
 │   DELETE /admin/api-keys/:id revoke key (soft delete, audit-safe)      │
 │   GET  /ui                  web dashboard (static, served by FastAPI)  │
+│   WS   /ws/events           WebSocket — live system snapshot every 3 s │
 │   GET  /health              DB + Redis + TLE staleness liveness probe  │
 │   GET  /metrics             Prometheus scrape endpoint                 │
 └────────────────────────────────────────────────────────────────────────┘
@@ -213,7 +215,7 @@ All settings are read from environment variables (or `.env`). Required values ar
 | `CELESTRAK_URL` | `https://celestrak.org/...` | Primary TLE source |
 | `TLE_FALLBACK_URLS` | `[]` | JSON array of fallback TLE URLs if Celestrak is down |
 | `TLE_STALE_ALERT_HOURS` | `24` | Hours after which `/health` marks TLE data as stale |
-| `MIN_ELEVATION_DEG` | `10.0` | Minimum elevation for a valid pass (degrees) |
+| `MIN_ELEVATION_DEG` | `10.0` | Global default elevation mask — overridden per station in `stations.json` |
 | `MIN_PASS_DURATION_SECONDS` | `5` | Discard passes shorter than this |
 | `PROPAGATION_STEP_SECONDS` | `10` | SGP4 time step (seconds) |
 | `PROPAGATION_DAYS` | `7` | Forward propagation window |
@@ -234,8 +236,8 @@ Paginated satellite passes with optional filters.
 |---|---|---|---|
 | `station_id` | string | — | Filter by station ID (e.g. `GS001`) |
 | `satellite_id` | int | — | Filter by NORAD ID |
-| `start_time` | ISO 8601 | now | Window start |
-| `end_time` | ISO 8601 | now + 7 days | Window end (max 7-day span) |
+| `start_time` | ISO 8601 | now − 7 days | Window start (defaults to past week) |
+| `end_time` | ISO 8601 | start + 7 days | Window end (max 7-day span) |
 | `page` | int | 1 | 1-based page number |
 | `page_size` | int | 50 | Items per page (max 100) |
 
@@ -306,6 +308,48 @@ All require `X-Admin-Key: <ADMIN_API_KEY>`.
 
 Raw keys are never stored. Only the SHA-256 hash is persisted. If a key is lost, revoke it and create a new one.
 
+### `WS /ws/events`
+
+WebSocket endpoint — connects without authentication and sends a JSON snapshot every 3 seconds.
+
+```json
+{
+  "type": "snapshot",
+  "timestamp": "2026-05-06T14:00:00+00:00",
+  "total_passes": 2101,
+  "scheduled_passes": 2101,
+  "satellites_tracked": 31,
+  "recent_passes_60s": 0,
+  "queues": { "ingestion": 0, "propagation": 0, "scheduling": 0 }
+}
+```
+
+The **⬤ Live** dashboard tab connects automatically and updates in real time.
+
+---
+
+## Ground Station Configuration
+
+Stations are defined in **`stations.json`** at the project root — no code changes needed to add, remove, or reconfigure a station.
+
+Each entry supports:
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | string | Unique station ID used in all API responses (e.g. `GS001`) |
+| `name` | string | Human-readable name shown in the dashboard |
+| `latitude` | float | Degrees north (−90 to +90) |
+| `longitude` | float | Degrees east (−180 to +180) |
+| `altitude_m` | float | Metres above sea level |
+| `elevation_mask_deg` | float | Minimum visible elevation (5° open-sky, 10° urban, 15° mountainous) |
+
+**Adding a station:**
+```json
+{ "id": "GS051", "name": "My New Station", "latitude": 48.8566, "longitude": 2.3522,
+  "altitude_m": 35, "elevation_mask_deg": 10.0 }
+```
+Add the line to `stations.json` and restart the API container — `init_db` seeds it automatically.
+
 ---
 
 ## Authentication
@@ -349,10 +393,11 @@ A web dashboard is served at `http://localhost:8000/ui` (no installation require
 | Tab | What it shows |
 |---|---|
 | **Coverage** | Total satellites visible, greedy vs OR-Tools split, per-station utilization progress bars |
-| **Passes** | Searchable paginated table — filter by station, NORAD ID, date range |
+| **Passes** | Searchable paginated table — filter by station, NORAD ID, date range; defaults to past 7 days |
 | **Schedule** | All scheduled passes for a station on a specific date |
 | **API Keys** | Create / revoke / reactivate keys (requires X-Admin-Key) |
 | **Health** | Live system status for database, Redis, cache, TLE freshness |
+| **⬤ Live** | WebSocket feed — real-time counters (total passes, scheduled, new in 60 s), Celery queue depths, scrolling event log |
 
 Keys entered in the dashboard are saved to `localStorage` so you do not need to re-enter them on refresh.
 
@@ -626,7 +671,8 @@ sda_system/
 ├── docs/
 │   ├── architecture.md         Full design rationale, algorithm derivation, scalability analysis
 │   └── sample_outputs/         Example JSON responses from each endpoint
-├── config.py                   Pydantic BaseSettings, SecretStr, env validators
+├── stations.json               Ground station definitions with per-station elevation masks
+├── config.py                   Pydantic BaseSettings, SecretStr, env validators (loads stations.json)
 ├── requirements.txt            Python dependencies
 ├── docker-compose.yml          All 8 services: postgres, redis, api, worker×2, beat, flower, nginx
 ├── Dockerfile.api              Multi-stage FastAPI image
@@ -643,10 +689,10 @@ sda_system/
 | Limitation | Impact | Suggested Fix |
 |---|---|---|
 | Single antenna per station | Cannot model multi-beam ground stations | Add `antenna_count` to `GroundStation`; OR-Tools `AddNoOverlap` supports multiple resources |
-| Fixed elevation mask | Different missions need different minimum elevations | Add `min_elevation_deg` to `GroundStation`; propagate to `PassDetector` |
+| Fixed elevation mask | ~~Different missions need different minimum elevations~~ | **Resolved** — `elevation_mask_deg` per station in `stations.json`; `PassDetector` uses per-station value |
 | Velocity not persisted | Cannot compute range-rate or Doppler shift | Store velocity columns in `satellite_passes`; compute on the fly from SGP4 |
 | No manoeuvre handling | TLEs invalid after orbit changes | Integrate space-track.org manoeuvre alerts to trigger re-propagation |
 | No link budget model | Passes selected by elevation only, not SNR | Add antenna gain + `EIRP` as a secondary objective term in CP-SAT |
-| Sequential station seeding | Fixed 50 stations coded in `config.py` | Move to a `ground_stations.json` seed file; allow operator-provided station lists |
-| No real-time updates | Schedule is static until next propagation run | Add a WebSocket or SSE endpoint that pushes new scheduled passes to subscribers |
+| Sequential station seeding | ~~Fixed 50 stations coded in `config.py`~~ | **Resolved** — stations defined in `stations.json`; add/edit/remove without touching Python code |
+| No real-time updates | ~~Schedule is static until next propagation run~~ | **Resolved** — `/ws/events` WebSocket pushes live snapshots every 3 s; Live tab in dashboard |
 | Full-catalogue propagation time | 15,352 satellites takes ~21 hours on 2 workers | Scale workers horizontally; coarsen time step for deep-space objects |
