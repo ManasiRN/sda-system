@@ -136,6 +136,8 @@ class PassDetector:
             ecef_positions, station_ecef, lat_rad, lon_rad
         )
 
+        elevation_mask = float(station.get("elevation_mask_deg", config.MIN_ELEVATION_DEG))
+
         return self._extract_passes(
             elevations=elevations,
             times=times,
@@ -144,6 +146,7 @@ class PassDetector:
             lat_rad=lat_rad,
             lon_rad=lon_rad,
             station_id=str(station.get("id", "unknown")),
+            elevation_mask=elevation_mask,
         )
 
     # -----------------------------------------------------------------------
@@ -157,6 +160,7 @@ class PassDetector:
         lat_rad: float,
         lon_rad: float,
         station_id: str,
+        elevation_mask: float = 10.0,
     ) -> List[Dict]:
         """
         Core pass-window extraction.
@@ -169,7 +173,7 @@ class PassDetector:
            crossing times, interpolated azimuths, and parabolic max elevation.
         """
         n    = len(times)
-        mask = float(station.get("elevation_mask_deg", config.MIN_ELEVATION_DEG))
+        mask = elevation_mask
 
         # --- Step 1: NaN sanitisation ---------------------------------------
         # NaN elevations arise from invalid SGP4 steps that slipped through
