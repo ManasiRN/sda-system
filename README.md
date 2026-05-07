@@ -2,12 +2,16 @@
 
 A production-grade **Space Domain Awareness** backend that ingests live TLE data, propagates orbital positions with SGP4, predicts visibility passes over 50 ground stations, and maximises unique satellite coverage using a two-stage greedy + OR-Tools CP-SAT scheduler — all served through a secured FastAPI, orchestrated with Celery, and deployed via Docker Compose.
 
+**Live deployment:** https://sda-system-production.up.railway.app/ui  
+**API docs:** https://sda-system-production.up.railway.app/docs
+
 ---
 
 ## Table of Contents
 
 - [Architecture](#architecture)
 - [Tech Stack](#tech-stack)
+- [Live Demo — Railway](#live-demo--railway)
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
 - [API Reference](#api-reference)
@@ -22,6 +26,50 @@ A production-grade **Space Domain Awareness** backend that ingests live TLE data
 - [Production Deployment](#production-deployment)
 - [Project Structure](#project-structure)
 - [Known Limitations and Future Work](#known-limitations-and-future-work)
+
+---
+
+## Live Demo — Railway
+
+The system is deployed on Railway at:
+
+| | |
+|---|---|
+| **Dashboard** | https://sda-system-production.up.railway.app/ui |
+| **API docs** | https://sda-system-production.up.railway.app/docs |
+| **Health** | https://sda-system-production.up.railway.app/health |
+
+### Access the API
+
+Create an API key via the Admin tab in the dashboard (requires `X-Admin-Key`), then:
+
+```bash
+curl https://sda-system-production.up.railway.app/api/coverage \
+  -H "X-API-Key: <your-key>"
+```
+
+### Railway deployment architecture
+
+Railway runs a single `api` service (no Celery workers). The pipeline is triggered manually via admin endpoints instead of Celery Beat:
+
+| Admin Endpoint | What it does |
+|---|---|
+| `POST /admin/tasks/ingest-tles` | Download fresh TLEs from Celestrak (~30s) |
+| `POST /admin/tasks/run-pipeline?limit=N` | SGP4 propagation + pass detection for N satellites |
+| `POST /admin/tasks/schedule` | Run greedy scheduler over 7-day window |
+| `POST /admin/tasks/debug-pipeline` | Single-satellite diagnostic (synchronous) |
+
+All three steps run as FastAPI background tasks — no worker containers needed. Trigger them in order from the **Admin** tab in the dashboard.
+
+### Current results (Railway)
+
+| Metric | Value |
+|---|---|
+| TLEs ingested | 15,352 active objects |
+| Ground stations | 50 globally distributed |
+| Propagation window | 7 days, 30-second steps |
+| Visible satellites (5,000 sampled) | 65+ |
+| Scheduled | 98%+ coverage |
 
 ---
 
@@ -567,6 +615,46 @@ OR-Tools specifically picked up high-inclination satellites (Etalon, LAGEOS, HST
 ---
 
 ## Production Deployment
+
+### Option A — Railway (single-service, no workers)
+
+Railway runs the API process only. No Celery workers or Beat scheduler. The pipeline is driven manually via the admin endpoints.
+
+**Deploy steps:**
+1. Connect the GitHub repo to a Railway project
+2. Add a PostgreSQL plugin and a Redis plugin
+3. Set environment variables (see [Configuration](#configuration)) — Railway auto-injects `DATABASE_URL` and `REDIS_URL` from the plugins
+4. Set `ENVIRONMENT=production` and a strong `ADMIN_API_KEY`
+5. Railway auto-deploys on every push to `main`
+
+**Required env overrides for Railway:**
+```dotenv
+ENVIRONMENT=production
+ADMIN_API_KEY=<strong-random-string>
+PROPAGATION_DAYS=7
+PROPAGATION_STEP_SECONDS=30
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+REDIS_URL=${{Redis.REDIS_URL}}
+```
+
+**Trigger the pipeline after deploy:**
+```bash
+# 1. Ingest TLEs
+curl -X POST https://<your-app>.up.railway.app/admin/tasks/ingest-tles \
+  -H "X-Admin-Key: <ADMIN_API_KEY>"
+
+# 2. Run propagation + pass detection (adjust limit as needed)
+curl -X POST "https://<your-app>.up.railway.app/admin/tasks/run-pipeline?limit=5000" \
+  -H "X-Admin-Key: <ADMIN_API_KEY>"
+
+# 3. Schedule detected passes
+curl -X POST https://<your-app>.up.railway.app/admin/tasks/schedule \
+  -H "X-Admin-Key: <ADMIN_API_KEY>"
+```
+
+Or use the **Admin** tab in the dashboard UI.
+
+### Option B — Docker Compose (full stack with workers)
 
 ### Secrets — never commit to git
 
