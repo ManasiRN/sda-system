@@ -551,8 +551,11 @@
     </div>
 
     <div class="card" style="margin-bottom:16px">
-      <div class="card-title" style="margin-bottom:12px">Queue Depths</div>
-      <div id="live-queues" style="display:flex;gap:24px;flex-wrap:wrap">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div class="card-title">Pipeline Status</div>
+        <span style="font-size:11px;color:var(--accent2);background:rgba(52,199,89,.12);padding:3px 10px;border-radius:12px;font-weight:600">● Direct API Mode</span>
+      </div>
+      <div id="live-queues" style="display:flex;gap:24px;flex-wrap:wrap;align-items:center">
         <span style="color:var(--muted);font-size:13px">Waiting for data…</span>
       </div>
     </div>
@@ -1007,14 +1010,24 @@ function connectWS() {
       document.getElementById('live-recent').textContent    = d.recent_passes_60s ?? '—';
 
       const qDiv = document.getElementById('live-queues');
-      if (d.queues && Object.keys(d.queues).length) {
-        qDiv.innerHTML = Object.entries(d.queues).map(([q, n]) =>
+      const _total = d.total_passes || 0;
+      const _sched = d.scheduled_passes || 0;
+      const _covPct = _total > 0 ? Math.round(_sched / _total * 100) : 0;
+      const _covColor = _covPct >= 80 ? 'var(--accent2)' : _covPct >= 40 ? 'var(--accent)' : 'var(--warn)';
+      const _qEntries = d.queues ? Object.entries(d.queues) : [];
+      const _qSum = _qEntries.reduce((a, [, n]) => a + n, 0);
+      qDiv.innerHTML =
+        `<div style="text-align:center;min-width:90px">
+          <div style="font-size:26px;font-weight:700;color:${_covColor}">${_covPct}%</div>
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;margin-top:2px">Pass Coverage</div>
+        </div>` +
+        _qEntries.map(([q, n]) =>
           `<div style="text-align:center;min-width:90px">
-            <div style="font-size:22px;font-weight:700;color:${n > 50 ? 'var(--warn)' : n > 0 ? 'var(--accent)' : 'var(--accent2)'}">${n}</div>
+            <div style="font-size:26px;font-weight:700;color:${n > 50 ? 'var(--warn)' : n > 0 ? 'var(--accent)' : 'var(--muted)'}">${n}</div>
             <div style="font-size:11px;color:var(--muted);text-transform:uppercase;margin-top:2px">${q}</div>
           </div>`
-        ).join('');
-      }
+        ).join('') +
+        (_qSum === 0 ? `<div style="font-size:12px;color:var(--muted);align-self:center;margin-left:4px">Pipeline runs via Admin API — no background workers needed</div>` : '');
 
       const ts = new Date(d.timestamp).toISOString().replace('T',' ').slice(0,19);
       appendLog(`[${ts}] passes=${d.total_passes} sched=${d.scheduled_passes} new60s=${d.recent_passes_60s} queues=${JSON.stringify(d.queues||{})}`, 'data');
