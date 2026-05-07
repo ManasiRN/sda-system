@@ -2,7 +2,7 @@
 
 A production-grade **Space Domain Awareness** backend that ingests live TLE data, propagates orbital positions with SGP4, predicts visibility passes over 50 ground stations, and maximises unique satellite coverage using a two-stage greedy + OR-Tools CP-SAT scheduler — all served through a secured FastAPI, orchestrated with Celery, and deployed via Docker Compose.
 
-**Live deployment:** https://sda-system-production.up.railway.app/ui  
+**Live deployment:** https://sda-system-production.up.railway.app/ui/  
 **API docs:** https://sda-system-production.up.railway.app/docs
 
 ---
@@ -35,7 +35,7 @@ The system is deployed on Railway at:
 
 | | |
 |---|---|
-| **Dashboard** | https://sda-system-production.up.railway.app/ui |
+| **Dashboard** | https://sda-system-production.up.railway.app/ui/ |
 | **API docs** | https://sda-system-production.up.railway.app/docs |
 | **Health** | https://sda-system-production.up.railway.app/health |
 
