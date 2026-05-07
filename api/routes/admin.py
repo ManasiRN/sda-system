@@ -226,7 +226,7 @@ async def trigger_ingest_tles(
 @router.post("/tasks/run-pipeline", status_code=status.HTTP_202_ACCEPTED)
 async def trigger_run_pipeline(
     background_tasks: BackgroundTasks,
-    limit: int = Query(200, ge=1, le=5000, description="Max satellites to process"),
+    limit: int = Query(200, ge=1, le=20000, description="Max satellites to process"),
     _: None = Depends(_require_admin),
 ) -> Dict[str, Any]:
     """
