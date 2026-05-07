@@ -167,6 +167,36 @@ def update_api_key(
     return _to_response(key)
 
 
+@router.post("/tasks/schedule", status_code=status.HTTP_200_OK)
+def trigger_schedule_only(
+    _: None = Depends(_require_admin),
+) -> Dict[str, Any]:
+    """
+    Run greedy scheduler synchronously over a 7-day window.
+    Returns diagnostic counts immediately — use this to fix sched=0.
+    """
+    from sda_system.db.session import SessionLocal
+    from sda_system.scheduling.greedy import GreedyScheduler
+
+    db = SessionLocal()
+    try:
+        now      = datetime.now(timezone.utc)
+        end_time = now + timedelta(days=7)
+        db.expire_all()
+        scheduled, sat_ids = GreedyScheduler(session=db).schedule_all_stations(now, end_time)
+        return {
+            "status":            "ok",
+            "window_start":      now.isoformat(),
+            "window_end":        end_time.isoformat(),
+            "passes_scheduled":  len(scheduled),
+            "unique_satellites": len(sat_ids),
+        }
+    except Exception as exc:
+        return {"status": "error", "detail": str(exc), "type": type(exc).__name__}
+    finally:
+        db.close()
+
+
 @router.post("/tasks/ingest-tles", status_code=status.HTTP_202_ACCEPTED)
 async def trigger_ingest_tles(
     background_tasks: BackgroundTasks,
