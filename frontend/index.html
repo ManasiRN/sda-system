@@ -486,6 +486,27 @@
 
   <!-- ── Page: Admin (API Keys) ─────────────────────── -->
   <div class="page" id="page-admin">
+
+    <!-- Pipeline Tasks -->
+    <div class="card" style="margin-bottom:24px">
+      <div class="card-title" style="margin-bottom:16px">Pipeline Tasks</div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+        <div>
+          <button class="btn btn-primary" id="btn-ingest" onclick="triggerIngest()">⬇ Ingest TLEs</button>
+          <div style="font-size:11px;color:var(--muted);margin-top:4px">Fetch latest satellite data (~60s)</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <label style="font-size:12px;color:var(--muted)">Satellites to process</label>
+          <input id="pipeline-limit" type="number" value="200" min="1" max="5000" style="width:120px" />
+        </div>
+        <div>
+          <button class="btn btn-success" id="btn-pipeline" onclick="triggerPipeline()">▶ Run Pipeline</button>
+          <div style="font-size:11px;color:var(--muted);margin-top:4px">Detect passes + schedule (~5 min)</div>
+        </div>
+        <div id="task-status" style="font-size:13px;color:var(--muted);padding:8px 0"></div>
+      </div>
+    </div>
+
     <div class="section-header">
       <div class="section-title">API Key Management</div>
       <button class="btn btn-success" onclick="openCreateKey()">+ Create Key</button>
@@ -1026,6 +1047,50 @@ function appendLog(msg, type='data') {
 }
 
 connectWS();
+
+// ── Pipeline tasks ─────────────────────────────────────
+async function triggerIngest() {
+  if (!adminKey) { toast('Enter X-Admin-Key first', 'error'); return; }
+  const btn = document.getElementById('btn-ingest');
+  const status = document.getElementById('task-status');
+  btn.disabled = true;
+  status.textContent = 'Ingesting TLEs…';
+  status.style.color = 'var(--accent)';
+  try {
+    const d = await apiFetch('/admin/tasks/ingest-tles', { method: 'POST' });
+    status.textContent = d.message;
+    status.style.color = 'var(--accent2)';
+    toast('TLE ingestion started — check Health in ~60s', 'success');
+  } catch(e) {
+    status.textContent = 'Error: ' + e.message;
+    status.style.color = 'var(--danger)';
+    toast('Ingest error: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function triggerPipeline() {
+  if (!adminKey) { toast('Enter X-Admin-Key first', 'error'); return; }
+  const limit = parseInt(document.getElementById('pipeline-limit').value) || 200;
+  const btn = document.getElementById('btn-pipeline');
+  const status = document.getElementById('task-status');
+  btn.disabled = true;
+  status.textContent = `Running pipeline for ${limit} satellites…`;
+  status.style.color = 'var(--accent)';
+  try {
+    const d = await apiFetch(`/admin/tasks/run-pipeline?limit=${limit}`, { method: 'POST' });
+    status.textContent = d.message;
+    status.style.color = 'var(--accent2)';
+    toast('Pipeline started — check Coverage in ~5 min', 'success');
+  } catch(e) {
+    status.textContent = 'Error: ' + e.message;
+    status.style.color = 'var(--danger)';
+    toast('Pipeline error: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
 
 // ── Init ────────────────────────────────────────────────
 loadHealth();
