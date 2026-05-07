@@ -243,6 +243,7 @@ async def trigger_run_pipeline(
 
     def _run() -> None:
         import structlog as _structlog
+        from sqlalchemy import func
         _log = _structlog.get_logger()
         _log.info("run_pipeline_started", limit=limit)
         db = SessionLocal()
@@ -250,7 +251,7 @@ async def trigger_run_pipeline(
             now      = datetime.now(timezone.utc)
             end_time = now + timedelta(days=sda_config.PROPAGATION_DAYS)
 
-            tles     = db.query(TLE).filter(TLE.is_current == True).limit(limit).all()  # noqa: E712
+            tles     = db.query(TLE).filter(TLE.is_current == True).order_by(func.random()).limit(limit).all()  # noqa: E712
             stations = db.query(GroundStation).filter(GroundStation.is_active == True).all()  # noqa: E712
 
             if not tles or not stations:
