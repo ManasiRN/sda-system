@@ -382,6 +382,35 @@ def debug_pipeline(_: None = Depends(_require_admin)) -> Dict[str, Any]:
         db.close()
 
 
+@router.post("/tasks/cleanup-passes", status_code=status.HTTP_200_OK)
+def cleanup_passes(
+    keep_days: int = Query(7, ge=1, le=30, description="Keep passes within this many days from now"),
+    _: None = Depends(_require_admin),
+) -> Dict[str, Any]:
+    """Delete satellite passes outside the active scheduling window to free disk space."""
+    from sda_system.db.models import SatellitePass
+    from sda_system.db.session import SessionLocal
+    from sqlalchemy import text
+
+    db = SessionLocal()
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=1)
+        result = db.execute(
+            text("DELETE FROM satellite_passes WHERE rise_time < :cutoff"),
+            {"cutoff": cutoff}
+        )
+        db.commit()
+        deleted = result.rowcount
+        remaining = db.query(SatellitePass).count()
+        db.execute(text("VACUUM satellite_passes"))
+        db.commit()
+        return {"status": "ok", "deleted": deleted, "remaining": remaining}
+    except Exception as exc:
+        return {"status": "error", "detail": str(exc)}
+    finally:
+        db.close()
+
+
 @router.delete("/api-keys/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
 def revoke_api_key(
     key_id: int,
