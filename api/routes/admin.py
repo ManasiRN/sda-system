@@ -402,8 +402,6 @@ def cleanup_passes(
         db.commit()
         deleted = result.rowcount
         remaining = db.query(SatellitePass).count()
-        db.execute(text("VACUUM satellite_passes"))
-        db.commit()
         return {"status": "ok", "deleted": deleted, "remaining": remaining}
     except Exception as exc:
         return {"status": "error", "detail": str(exc)}
