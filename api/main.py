@@ -251,7 +251,7 @@ async def lifespan(app: FastAPI):
             trigger=IntervalTrigger(hours=settings.TLE_FETCH_INTERVAL_HOURS),
             id="auto_pipeline",
             replace_existing=True,
-            next_run_time=datetime.now(timezone.utc),  # run immediately on startup
+            next_run_time=datetime.now(timezone.utc) + timedelta(minutes=5),
         )
         _scheduler.start()
         logger.info(
