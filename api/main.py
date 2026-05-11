@@ -82,11 +82,7 @@ cache = RedisCache(settings.REDIS_URL)
 # Non-production: allow all (convenient for local dev and staging).
 # Production:     read from CORS_ORIGINS setting; empty list blocks all origins.
 # ---------------------------------------------------------------------------
-_CORS_ORIGINS: list = (
-    settings.CORS_ORIGINS
-    if settings.ENVIRONMENT.lower() == "production" and settings.CORS_ORIGINS
-    else (["*"] if settings.ENVIRONMENT.lower() != "production" else [])
-)
+_CORS_ORIGINS: list = settings.CORS_ORIGINS if settings.CORS_ORIGINS else ["*"]
 
 
 # ---------------------------------------------------------------------------
