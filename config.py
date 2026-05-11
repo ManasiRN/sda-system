@@ -120,6 +120,16 @@ class Settings(BaseSettings):
         description="Flower dashboard basic-auth in 'user:password' format",
     )
 
+    # ── Auto pipeline (Railway / single-process deployments) ────────────────
+    AUTO_PIPELINE_ENABLED: bool = Field(
+        default=False,
+        description="Run ingest + pipeline automatically every TLE_FETCH_INTERVAL_HOURS (no Celery needed)",
+    )
+    AUTO_PIPELINE_LIMIT: int = Field(
+        default=5000,
+        description="Max satellites per auto pipeline run",
+    )
+
     # ── TLE staleness alerting ───────────────────────────────────────────────
     TLE_STALE_ALERT_HOURS: int = Field(
         default=24,

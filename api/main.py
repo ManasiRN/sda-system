@@ -93,6 +93,118 @@ _CORS_ORIGINS: list = (
 # Lifespan — startup / shutdown
 # ---------------------------------------------------------------------------
 
+async def _auto_pipeline_job() -> None:
+    """Scheduled job: ingest TLEs then propagate + schedule (no Celery needed)."""
+    from ..ingestion.fetcher import TLEFetcher
+    from ..db.session import SessionLocal
+
+    logger.info("auto_pipeline_ingest_started")
+    db = SessionLocal()
+    try:
+        fetcher = TLEFetcher(db)
+        fetcher.init_ground_stations()
+        result = await fetcher.fetch_all()
+        logger.info("auto_pipeline_ingest_done", result=result)
+    except Exception as exc:
+        logger.error("auto_pipeline_ingest_failed", error=str(exc))
+        return
+    finally:
+        db.close()
+
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(_ws_executor, _run_pipeline_sync)
+
+
+def _run_pipeline_sync() -> None:
+    """CPU-bound pipeline: SGP4 propagation + greedy scheduling."""
+    from ..db.models import TLE, GroundStation, SatellitePass
+    from ..db.session import SessionLocal
+    from ..propagation.pass_detector import pass_detector
+    from ..propagation.sgp4_engine import sgp4_engine
+    from ..scheduling.greedy import GreedyScheduler
+    from sqlalchemy import func, Table
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    from typing import cast as tcast
+
+    limit = settings.AUTO_PIPELINE_LIMIT
+    logger.info("auto_pipeline_run_started", limit=limit)
+    db = SessionLocal()
+    try:
+        now      = datetime.now(timezone.utc)
+        end_time = now + timedelta(days=settings.PROPAGATION_DAYS)
+        tles     = (
+            db.query(TLE)
+            .filter(TLE.is_current == True)  # noqa: E712
+            .order_by(func.random())
+            .limit(limit)
+            .all()
+        )
+        stations = db.query(GroundStation).filter(GroundStation.is_active == True).all()  # noqa: E712
+
+        if not tles or not stations:
+            logger.warning("auto_pipeline_no_data", tles=len(tles), stations=len(stations))
+            return
+
+        _table: Table = tcast(Table, SatellitePass.__table__)
+
+        for tle in tles:
+            try:
+                result = sgp4_engine.propagate(
+                    line1=tle.line1, line2=tle.line2,
+                    norad_id=tle.norad_id, start_time=now, name=tle.name or "",
+                )
+            except Exception:
+                continue
+            if not result.is_usable() or len(result.valid_positions) == 0:
+                continue
+
+            rows = []
+            for station in stations:
+                station_dict = {
+                    "id":                 station.station_id,
+                    "latitude":           station.latitude,
+                    "longitude":          station.longitude,
+                    "altitude_m":         station.altitude_m,
+                    "elevation_mask_deg": getattr(station, "elevation_mask_deg", settings.MIN_ELEVATION_DEG),
+                }
+                try:
+                    detected = pass_detector.detect_passes(
+                        result.valid_positions, result.valid_times, station_dict
+                    )
+                except Exception:
+                    continue
+                for p in detected:
+                    rows.append({
+                        "norad_id":           tle.norad_id,
+                        "station_id":         station.station_id,
+                        "rise_time":          p["rise_time"],
+                        "set_time":           p["set_time"],
+                        "duration_seconds":   p["duration_seconds"],
+                        "max_elevation":      p["max_elevation"],
+                        "max_elevation_time": p["max_elevation_time"],
+                        "azimuth_at_rise":    p.get("azimuth_at_rise"),
+                        "azimuth_at_set":     p.get("azimuth_at_set"),
+                        "azimuth_at_max":     p.get("azimuth_at_max"),
+                        "is_scheduled":       False,
+                        "tle_epoch":          tle.epoch,
+                    })
+
+            if rows:
+                stmt = pg_insert(_table).values(rows).on_conflict_do_nothing(
+                    index_elements=["norad_id", "station_id", "rise_time"]
+                )
+                db.execute(stmt)
+                db.commit()
+
+        GreedyScheduler(session=db).schedule_all_stations(now, end_time)
+        logger.info("auto_pipeline_run_completed", limit=limit)
+    except Exception as exc:
+        logger.error("auto_pipeline_run_failed", error=str(exc))
+        db.rollback()
+    finally:
+        db.close()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -105,6 +217,8 @@ async def lifespan(app: FastAPI):
        from_url() is synchronous — the pool is lazy; do NOT await it.
     3. Attach auth helpers and cache to app.state so route dependencies
        can resolve them via request.app.state.
+    4. Start APScheduler if AUTO_PIPELINE_ENABLED — runs ingest + pipeline
+       every TLE_FETCH_INTERVAL_HOURS without Celery workers (Railway mode).
     """
     logger.info(
         "sda_api_startup",
@@ -115,8 +229,6 @@ async def lifespan(app: FastAPI):
     try:
         await cache.connect()
     except Exception as exc:
-        # Redis temporarily unavailable — app starts in degraded mode.
-        # The cache circuit-breaker will retry on each request.
         logger.warning("redis_cache_connect_failed_at_startup", error=str(exc))
 
     redis_client: aioredis.Redis = aioredis.from_url(
@@ -130,13 +242,37 @@ async def lifespan(app: FastAPI):
     app.state.rate_limiter  = RateLimiter(redis_client)
     app.state.cache         = cache
 
+    # Auto pipeline scheduler — activates when AUTO_PIPELINE_ENABLED=true.
+    # Designed for single-process deployments (Railway) where Celery workers
+    # are not running. Runs ingest + propagation every TLE_FETCH_INTERVAL_HOURS
+    # and fires immediately on startup so the first run doesn't wait 6 hours.
+    _scheduler = None
+    if settings.AUTO_PIPELINE_ENABLED:
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+        from apscheduler.triggers.interval import IntervalTrigger
+        _scheduler = AsyncIOScheduler()
+        _scheduler.add_job(
+            _auto_pipeline_job,
+            trigger=IntervalTrigger(hours=settings.TLE_FETCH_INTERVAL_HOURS),
+            id="auto_pipeline",
+            replace_existing=True,
+            next_run_time=datetime.now(timezone.utc),  # run immediately on startup
+        )
+        _scheduler.start()
+        logger.info(
+            "auto_pipeline_scheduler_started",
+            interval_hours=settings.TLE_FETCH_INTERVAL_HOURS,
+            limit=settings.AUTO_PIPELINE_LIMIT,
+        )
+
     logger.info("sda_api_ready")
     yield
 
-    # Shutdown — drain both Redis connections
+    if _scheduler:
+        _scheduler.shutdown(wait=False)
     logger.info("sda_api_shutdown")
     await cache.disconnect()
-    await app.state.redis_client.aclose()  # Fix: was .close() — wrong async method
+    await app.state.redis_client.aclose()
 
 
 # ---------------------------------------------------------------------------
