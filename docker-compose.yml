@@ -184,7 +184,7 @@ services:
       - ./nginx/ssl:/etc/nginx/ssl:ro
     depends_on:
       api:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/nginx-health"]
       interval: 30s
