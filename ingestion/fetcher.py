@@ -312,7 +312,7 @@ class TLEFetcher:
 
                 ok, err = self.validator.validate_pair(name, line1, line2)
                 if not ok:
-                    logger.warning("tle_rejected", name=name, reason=err)
+                    logger.debug("tle_rejected", name=name, reason=err)
                     invalid_count += 1
                     continue
 
