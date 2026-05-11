@@ -339,7 +339,7 @@ class SGP4Engine:
         tle_epoch_dt = _tle_epoch(sat)
         tle_age_days = (start_time - tle_epoch_dt).total_seconds() / 86_400.0
         if tle_age_days > _MAX_TLE_AGE_DAYS:
-            logger.warning(
+            logger.debug(
                 "TLE epoch is stale — accuracy degraded",
                 norad_id=norad_id,
                 tle_age_days=round(tle_age_days, 2),
@@ -347,7 +347,7 @@ class SGP4Engine:
                 tle_epoch=tle_epoch_dt.isoformat(),
             )
         elif tle_age_days < 0:
-            logger.warning(
+            logger.debug(
                 "TLE epoch is in the future relative to start_time",
                 norad_id=norad_id,
                 tle_age_days=round(tle_age_days, 2),

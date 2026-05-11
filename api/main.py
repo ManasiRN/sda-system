@@ -102,8 +102,7 @@ async def _auto_pipeline_job() -> None:
         result = await fetcher.fetch_all()
         logger.info("auto_pipeline_ingest_done", result=result)
     except Exception as exc:
-        logger.error("auto_pipeline_ingest_failed", error=str(exc))
-        return
+        logger.warning("auto_pipeline_ingest_failed_continuing", error=str(exc))
     finally:
         db.close()
 
