@@ -29,16 +29,6 @@ A production-grade **Space Domain Awareness** backend that ingests live TLE data
 
 ---
 
-## Live Demo — Railway
-
-The system is deployed on Railway at:
-
-| | |
-|---|---|
-| **Dashboard** | https://sda-system-production.up.railway.app/ui/ |
-| **API docs** | https://sda-system-production.up.railway.app/docs |
-| **Health** | https://sda-system-production.up.railway.app/health |
-
 ### Access the API
 
 Create an API key via the Admin tab in the dashboard (requires `X-Admin-Key`), then:
